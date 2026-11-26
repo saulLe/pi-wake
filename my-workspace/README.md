@@ -7,6 +7,13 @@
 ```
 my-workspace/
 ├── AGENTS.md                          # 项目级代码规范（启动时自动加载）
+├── docs/                              # Pi 项目全部调研资料
+│   ├── README.md                      # 资料索引
+│   ├── 01-项目概览.md
+│   ├── 02-二次开发可行性分析.md
+│   ├── 03-环境准备清单.md
+│   ├── 架构图-分层.svg
+│   └── 架构图-二开路径.svg
 └── .pi/
     ├── skills/velocity-sql/           # Velocity/SQL 优化 skill
     │   ├── SKILL.md
