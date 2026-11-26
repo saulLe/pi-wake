@@ -1,0 +1,27 @@
+[
+  {
+    "id": "leadership",
+    "name": "管理部",
+    "description": "目标拆解与汇总汇报"
+  },
+  {
+    "id": "product",
+    "name": "产品部",
+    "description": "需求澄清与规格定义"
+  },
+  {
+    "id": "engineering",
+    "name": "研发部",
+    "description": "方案设计与代码交付"
+  },
+  {
+    "id": "quality",
+    "name": "质量部",
+    "description": "测试验证与评审"
+  },
+  {
+    "id": "yanfa",
+    "name": "研发部",
+    "description": "负责saas产品的研发"
+  }
+]

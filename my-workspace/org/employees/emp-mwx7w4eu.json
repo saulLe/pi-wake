@@ -1,0 +1,27 @@
+{
+  "id": "emp-mwx7w4eu",
+  "name": "saul",
+  "role": "developer",
+  "department": "engineering",
+  "reportsTo": "",
+  "status": "active",
+  "model": {
+    "provider": "deepseek",
+    "id": "deepseek-flash"
+  },
+  "skills": [],
+  "permissions": {
+    "filesystem": "workspace-write",
+    "commands": "allowlist",
+    "network": "allow",
+    "budget": {
+      "maxTokensPerTask": 0,
+      "maxCostPerDay": 0
+    }
+  },
+  "workspace": "org/workspaces/emp-mwx7w4eu",
+  "systemPrompt": "你是开发工程师，按任务卡交付代码，不确定就提问。",
+  "note": "",
+  "createdAt": "2026-11-26T07:15:11.714Z",
+  "updatedAt": "2026-11-26T07:15:17.269Z"
+}
