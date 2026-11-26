@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pi Admin — 本地管理界面</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">π</div>
+        <div>
+          <div class="brand-name">Pi Admin</div>
+          <div class="brand-sub">本地管理界面</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-tab="overview"><span class="nav-icon">◈</span>概览</button>
+        <button class="nav-item" data-tab="resources"><span class="nav-icon">▦</span>资源管理</button>
+        <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙</span>设置编辑</button>
+        <button class="nav-item" data-tab="sessions"><span class="nav-icon">☰</span>会话中心</button>
+        <button class="nav-item" data-tab="models"><span class="nav-icon">◇</span>模型与认证</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button id="unlockBtn" class="unlock-btn">🔒 只读模式</button>
+        <div class="foot-hint">写操作需先解锁<br>每次修改自动备份</div>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title" id="pageTitle">概览</div>
+        <div class="topbar-meta">
+          <span class="dot ok"></span><span id="statusText">已连接</span>
+          <span class="sep">|</span>
+          <span id="clock"></span>
+          <span class="sep">|</span>
+          <label class="theme-switch" title="界面主题">
+            <span id="themeIcon">◐</span>
+            <select id="themeSelect" aria-label="界面主题">
+              <option value="dark">🌙 深色</option>
+              <option value="light">☀️ 浅色</option>
+              <option value="auto">◐ 自动</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- 概览 -->
+        <section class="view active" id="view-overview">
+          <div class="hero">
+            <div>
+              <h1>Pi 本地管理界面</h1>
+              <p>管理你的 Pi 配置、资源、会话与模型。所有数据都在本机，不联网、不外传。</p>
+            </div>
+            <button class="btn primary" onclick="refreshAll()">↻ 刷新数据</button>
+          </div>
+
+          <div class="stat-grid" id="statGrid"></div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>环境信息</h2></div>
+            <div class="panel-body">
+              <div class="kv-grid" id="envInfo"></div>
+            </div>
+          </div>
+
+          <div class="notice">
+            <span class="notice-icon">ℹ</span>
+            <div>
+              <strong>使用提示</strong>
+              <p>这个界面直接读写 Pi 的配置文件。<b>默认是只读的</b>，需要修改时点左下角「解锁编辑」。改完配置后，在 Pi 终端里执行 <code>/reload</code> 让改动生效。所有写操作都会先备份到 <code>admin/.backups/</code>。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 资源管理 -->
+        <section class="view" id="view-resources">
+          <div class="view-head">
+            <div><h1>资源管理</h1><p>查看并启停 extensions / skills / prompts / themes。等价于 <code>pi config</code>，但用网页操作。</p></div>
+            <div class="filters" id="resourceFilters"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>资源列表</h2>
+              <span class="badge" id="resourceCount"></span>
+            </div>
+            <div class="panel-body no-pad">
+              <table class="table" id="resourceTable">
+                <thead><tr><th>类型</th><th>名称</th><th>作用域</th><th>路径 / Pattern</th><th>状态</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设置编辑 -->
+        <section class="view" id="view-settings">
+          <div class="view-head">
+            <div><h1>设置编辑</h1><p>图形化查看和编辑配置 JSON。有字段说明，避免手写出错。</p></div>
+            <div class="settings-controls">
+              <select id="settingScope"><option value="user">用户级 (~/.pi/agent)</option><option value="project">项目级 (.pi)</option></select>
+              <select id="settingFile">
+                <option value="settings">settings.json</option>
+                <option value="mcp">mcp.json</option>
+                <option value="models">models.json</option>
+                <option value="keybindings">keybindings.json</option>
+              </select>
+              <button class="btn" onclick="loadSettings()">加载</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2 id="settingsTitle">settings.json</h2>
+              <div class="head-actions">
+                <span class="path-label" id="settingsPath"></span>
+                <button class="btn" id="copySettingsBtn" onclick="copySettings()">复制</button>
+                <button class="btn primary" id="saveSettingsBtn" onclick="saveSettings()">💾 保存</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <textarea id="settingsEditor" spellcheck="false" placeholder="选择文件和作用域，点「加载」..."></textarea>
+            </div>
+          </div>
+          <div class="notice small">
+            <span class="notice-icon">⚠</span>
+            <div><strong>注意</strong><p>保存前会自动备份原文件。<code>$schema</code> 字段可保留，获得编辑器补全。改完记得在 Pi 里 <code>/reload</code>。</p></div>
+          </div>
+        </section>
+
+        <!-- 会话中心 -->
+        <section class="view" id="view-sessions">
+          <div class="view-head">
+            <div><h1>会话中心</h1><p>浏览历史会话、查看对话内容、统计 token 与费用、导出或删除。</p></div>
+            <button class="btn" onclick="loadSessions()">↻ 刷新</button>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>会话列表</h2><span class="badge" id="sessionCount"></span></div>
+            <div class="panel-body no-pad">
+              <table class="table" id="sessionTable">
+                <thead><tr><th>会话</th><th>目录</th><th>消息</th><th>Token</th><th>费用</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel hidden" id="sessionDetailPanel">
+            <div class="panel-head"><h2 id="sessionDetailTitle">会话详情</h2><button class="btn" onclick="closeSessionDetail()">关闭</button></div>
+            <div class="panel-body"><div class="timeline" id="sessionTimeline"></div></div>
+          </div>
+        </section>
+
+        <!-- 模型与认证 -->
+        <section class="view" id="view-models">
+          <div class="view-head">
+            <div><h1>模型与认证</h1><p>查看默认模型、已保存的凭证与自定义端点。<b>密钥一律脱敏显示，不返回明文。</b></p></div>
+            <div class="head-actions">
+              <button class="btn" onclick="loadModels()">↻ 刷新</button>
+              <button class="btn primary" onclick="openAddModel()">＋ 新增模型</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>当前默认</h2></div>
+            <div class="panel-body"><div class="kv-grid" id="modelDefaults"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>已保存凭证 <span class="sub">auth.json（脱敏）</span></h2></div>
+            <div class="panel-body no-pad">
+              <table class="table" id="credTable">
+                <thead><tr><th>Provider</th><th>类型</th><th>密钥</th><th>OAuth</th><th>环境值</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>自定义端点 <span class="sub">models.json（脱敏）</span></h2></div>
+            <div class="panel-body no-pad">
+              <table class="table" id="providerTable">
+                <thead><tr><th>Provider ID</th><th>Base URL</th><th>API</th><th>API Key</th><th>模型</th><th>操作</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 新增模型弹窗 -->
+  <div id="modelModal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeAddModel()"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>＋ 新增模型</h2>
+        <button class="modal-close" onclick="closeAddModel()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="notice small" style="margin-bottom:16px">
+          <span class="notice-icon">ℹ</span>
+          <div><p>配置一个模型端点。带 <b>*</b> 为必填。密钥会以明文写入 <code>models.json</code>（本机文件，界面显示时脱敏）。</p></div>
+        </div>
+
+        <div class="form-row">
+          <label>Provider 类型 <b>*</b><span>内置 Provider 会自动带出地址、API 类型与模型列表</span></label>
+          <select id="mf-providerSelect" onchange="onProviderSelect()">
+            <option value="">— 请选择 Provider —</option>
+            <optgroup label="国内 Provider">
+              <option value="__loading__" disabled>加载中…</option>
+            </optgroup>
+            <optgroup label="国外 / 国际 Provider"></optgroup>
+            <option value="__custom__">✏️ 自定义 Provider（手动输入 ID）</option>
+          </select>
+          <input id="mf-providerId" class="hidden" placeholder="my-ollama" autocomplete="off">
+          <div class="builtin-hint" id="builtinHint"></div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-row">
+            <label>显示名称<span>可选</span></label>
+            <input id="mf-name" placeholder="My Local LLM">
+          </div>
+          <div class="form-row">
+            <label>API 类型<span>选 Provider 后自动填入，可手动改</span></label>
+            <select id="mf-api">
+              <option value="openai-completions">openai-completions（OpenAI 兼容，国内大多用它）</option>
+              <option value="openai-responses">openai-responses</option>
+              <option value="anthropic-messages">anthropic-messages</option>
+              <option value="google-generative-ai">google-generative-ai</option>
+              <option value="">(内置 provider 可留空)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>Base URL <b>*</b><span>如 <code>http://localhost:11434/v1</code></span></label>
+          <input id="mf-baseUrl" placeholder="http://localhost:11434/v1" autocomplete="off">
+        </div>
+
+        <div class="form-row">
+          <label>API Key<span>可留空；支持 <code>$环境变量</code> 或 <code>!命令</code></span></label>
+          <input id="mf-apiKey" type="password" placeholder="sk-... 或 $MY_API_KEY" autocomplete="off">
+        </div>
+
+        <div class="form-grid">
+          <div class="form-row">
+            <label>选择模型 <b>*</b><span id="modelSelectHint">先选上面的 Provider，再从列表挑选</span></label>
+            <select id="mf-modelSelect" onchange="onModelSelect()">
+              <option value="">— 先选择 Provider —</option>
+            </select>
+            <button type="button" class="inline-link" onclick="toggleModelManual()">✏️ 手动输入模型 ID</button>
+            <input id="mf-modelId" class="hidden" placeholder="qwen2.5-coder:7b" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <label>模型显示名<span>选模型时自动填入，可改</span></label>
+            <input id="mf-modelName" placeholder="Qwen 2.5 Coder">
+          </div>
+        </div>
+
+        <div class="form-grid three">
+          <div class="form-row">
+            <label>上下文窗口<span>默认 128000</span></label>
+            <input id="mf-contextWindow" type="number" placeholder="128000">
+          </div>
+          <div class="form-row">
+            <label>最大输出<span>默认 16384</span></label>
+            <input id="mf-maxTokens" type="number" placeholder="16384">
+          </div>
+          <div class="form-row">
+            <label>输入类型</label>
+            <select id="mf-input">
+              <option value="text">仅文本</option>
+              <option value="text,image">文本 + 图片</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="mf-reasoning"> 模型支持思考 / reasoning
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="mf-authHeader"> 用 Authorization: Bearer 发送 Key
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeAddModel()">取消</button>
+        <button class="btn primary" onclick="submitAddModel()">💾 保存模型</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b0d10">
+  <title>Pi Admin · 本地管理中心</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ===== 统一图标库（Lucide 风格线性图标） ===== -->
+<svg class="icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2M15 8V2"/><path d="M6 8v4a6 6 0 0 0 12 0V8"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24"><path d="m15 4 5 5M3 21 15 9m0 0 2-2-5-5-2 2 5 5zM5 3v4M3 5h4M19 15v4M17 17h4"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9 2 2-2 2 2 2-3 3-2-2-2 2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5zM3 7v10l9 5 9-5V7M12 12v10"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10M6.3 5.7a9 9 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-circle-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 4h16l2 10v6H2v-6zM2 14h5l2 3h6l2-3h5"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M18 8a3 3 0 1 0-3-3v14a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V5a3 3 0 1 0-3 3z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 21v-4h6v4M8 7h.01M12 7h.01M16 7h.01M8 11h.01M12 11h.01M16 11h.01"/></symbol>
+  <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M2 13h20"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-5h14v5"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- ===== 侧边栏 ===== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 8h12M9 8v7c0 2-1 3-3 3M15 8v7c0 2 1 3 3 3"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-name">Pi Admin <span class="brand-ver" id="brandVersion">v—</span></div>
+        <div class="brand-sub">本地管理中心</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-section">
+        <div class="nav-label">工作区</div>
+        <button class="nav-item active" data-tab="overview"><svg class="icon"><use href="#i-grid"/></svg><span>概览</span></button>
+        <button class="nav-item" data-tab="resources"><svg class="icon"><use href="#i-plug"/></svg><span>资源管理</span></button>
+        <button class="nav-item" data-tab="sessions"><svg class="icon"><use href="#i-clock"/></svg><span>会话中心</span></button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">数字员工</div>
+        <button class="nav-item" data-tab="org"><svg class="icon"><use href="#i-network"/></svg><span>组织概览</span></button>
+        <button class="nav-item" data-tab="employees"><svg class="icon"><use href="#i-users"/></svg><span>员工管理</span></button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">配置</div>
+        <button class="nav-item" data-tab="settings"><svg class="icon"><use href="#i-sliders"/></svg><span>设置编辑</span></button>
+        <button class="nav-item" data-tab="models"><svg class="icon"><use href="#i-cpu"/></svg><span>模型与认证</span></button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">快捷操作</div>
+        <button class="nav-item" onclick="openCommandPalette()"><svg class="icon"><use href="#i-command"/></svg><span>命令面板</span><kbd>⌘K</kbd></button>
+        <button class="nav-item" onclick="refreshAll()"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新数据</span></button>
+      </div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <button id="unlockBtn" class="mode-card">
+        <span class="mode-icon"><svg class="icon"><use href="#i-lock"/></svg></span>
+        <span class="mode-text"><b id="modeTitle">只读模式</b><small id="modeSub">写操作已锁定</small></span>
+        <span class="mode-dot"></span>
+      </button>
+      <div class="sidebar-meta"><svg class="icon"><use href="#i-shield"/></svg> 纯本地 · 无网络请求</div>
+    </div>
+  </aside>
+
+  <!-- ===== 主区域 ===== -->
+  <main class="main">
+    <header class="topbar">
+      <div class="breadcrumb">
+        <svg class="icon"><use href="#i-box"/></svg>
+        <span>Pi Admin</span>
+        <svg class="icon sep"><use href="#i-chevron"/></svg>
+        <strong id="pageTitle">概览</strong>
+      </div>
+      <div class="topbar-meta">
+        <span class="status-pill"><span class="dot ok"></span><span id="statusText">已连接</span></span>
+        <span class="sep-text">/</span>
+        <span class="clock" id="clock"></span>
+        <div class="theme-seg" role="group" aria-label="界面主题">
+          <button data-theme-value="dark" title="深色"><svg class="icon"><use href="#i-moon"/></svg></button>
+          <button data-theme-value="light" title="浅色"><svg class="icon"><use href="#i-sun"/></svg></button>
+          <button data-theme-value="auto" title="自动"><svg class="icon"><use href="#i-monitor"/></svg></button>
+        </div>
+        <select id="themeSelect" class="hidden" aria-hidden="true"><option value="dark">dark</option><option value="light">light</option><option value="auto">auto</option></select>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- 概览 -->
+      <section class="view active" id="view-overview">
+        <div class="hero">
+          <div class="hero-main">
+            <div class="hero-greeting"><svg class="icon"><use href="#i-sparkle"/></svg><span>控制中心</span></div>
+            <h1 id="greeting">你好，一切都就绪</h1>
+            <p>在这里管理 Pi 的配置、资源、会话与模型。所有数据都保存在本机，不联网、不外传。</p>
+          </div>
+          <div class="hero-side">
+            <span class="live-badge"><span class="dot ok"></span> 服务运行中</span>
+            <button class="btn primary" onclick="refreshAll()"><svg class="icon"><use href="#i-refresh"/></svg>刷新数据</button>
+          </div>
+        </div>
+
+        <div class="stat-grid" id="statGrid">
+          <div class="stat-card skeleton"></div><div class="stat-card skeleton"></div>
+          <div class="stat-card skeleton"></div><div class="stat-card skeleton"></div>
+        </div>
+
+        <div class="section-head">
+          <div><h2>系统环境</h2><p>当前工作区与 Pi 的运行路径</p></div>
+          <button class="btn ghost btn-sm" onclick="copyEnvInfo()"><svg class="icon"><use href="#i-copy"/></svg>复制</button>
+        </div>
+        <div class="panel">
+          <div class="panel-body">
+            <div class="kv-grid" id="envInfo">
+              <div class="skeleton-line"></div><div class="skeleton-line"></div>
+              <div class="skeleton-line"></div><div class="skeleton-line"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="notice">
+          <span class="notice-icon"><svg class="icon"><use href="#i-info"/></svg></span>
+          <div>
+            <strong>开始使用</strong>
+            <p>界面默认<b>只读</b>，需要修改时点击左下角的「只读模式」解锁。改完配置后，在 Pi 终端执行 <code>/reload</code> 使其生效。每次写操作都会先备份到 <code>admin/.backups/</code>。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 资源管理 -->
+      <section class="view" id="view-resources">
+        <div class="view-head">
+          <div><h1>资源管理</h1><p>查看并启停 extensions / skills / prompts / themes，等价于 <code>pi config</code> 的网页版。</p></div>
+        </div>
+        <div class="toolbar">
+          <div class="filters" id="resourceFilters"></div>
+          <div class="search-box"><svg class="icon"><use href="#i-search"/></svg><input id="resourceSearch" placeholder="搜索资源名称或路径…" autocomplete="off"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>资源列表</h2><span class="badge" id="resourceCount">—</span></div>
+          <div class="panel-body no-pad">
+            <table class="table" id="resourceTable">
+              <thead><tr><th>类型</th><th>名称</th><th>作用域</th><th>路径 / Pattern</th><th>状态</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 组织概览 -->
+      <section class="view" id="view-org">
+        <div class="view-head">
+          <div><h1>组织概览</h1><p>把 Pi 的能力组织成一支本地虚拟团队。此处只管理组织与员工配置，真实任务执行将在后续阶段接入。</p></div>
+          <div class="head-actions">
+            <button class="btn" onclick="loadOrgOverview()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+            <button class="btn" onclick="openDepartmentModal()"><svg class="icon"><use href="#i-building"/></svg>新增部门</button>
+            <button class="btn primary" onclick="openEmployeeModal()"><svg class="icon"><use href="#i-plus"/></svg>新增员工</button>
+          </div>
+        </div>
+
+        <div class="stat-grid" id="orgStatGrid">
+          <div class="stat-card skeleton"></div><div class="stat-card skeleton"></div>
+          <div class="stat-card skeleton"></div><div class="stat-card skeleton"></div>
+        </div>
+
+        <div class="section-head">
+          <div><h2>组织架构图</h2><p>点击架构图中的员工卡片可直接编辑</p></div>
+          <span class="badge" id="orgChartBadge">—</span>
+        </div>
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <div class="org-chart-scroll" id="orgChart"><div class="skeleton-line" style="margin:18px"></div></div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><h2>部门</h2><span class="badge" id="departmentCount">—</span></div>
+            <div class="panel-body"><div id="departmentList" class="mini-list"><div class="skeleton-line"></div></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>岗位模板</h2><span class="badge" id="roleCount">—</span></div>
+            <div class="panel-body"><div id="roleList" class="mini-list"><div class="skeleton-line"></div></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 员工管理 -->
+      <section class="view" id="view-employees">
+        <div class="view-head">
+          <div><h1>员工管理</h1><p>创建、编辑、启停和归档数字员工。归档只改状态，<b>不会删除任何文件</b>。</p></div>
+          <div class="head-actions">
+            <button class="btn" onclick="loadEmployees()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+            <button class="btn primary" onclick="openEmployeeModal()"><svg class="icon"><use href="#i-plus"/></svg>新增员工</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="filters" id="employeeFilters"></div>
+          <div class="search-box"><svg class="icon"><use href="#i-search"/></svg><input id="employeeSearch" placeholder="搜索姓名、岗位、部门…" autocomplete="off"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>员工列表</h2><span class="badge" id="employeeCount">—</span></div>
+          <div class="panel-body no-pad">
+            <table class="table" id="employeeTable">
+              <thead><tr><th>员工</th><th>岗位</th><th>部门</th><th>汇报对象</th><th>模型</th><th>技能</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="notice small">
+          <span class="notice-icon"><svg class="icon"><use href="#i-shield"/></svg></span>
+          <div><strong>安全约定</strong><p>所有写操作都需要先在左下角解锁，修改前自动备份到 <code>admin/.backups/</code>。员工配置保存在 <code>my-workspace/org/</code>，不改动 Pi 上游源码。</p></div>
+        </div>
+      </section>
+
+      <!-- 设置编辑 -->
+      <section class="view" id="view-settings">
+        <div class="view-head">
+          <div><h1>设置编辑</h1><p>图形化查看和编辑配置 JSON，带字段说明，避免手写出错。</p></div>
+        </div>
+        <div class="toolbar">
+          <div class="settings-controls">
+            <select id="settingScope"><option value="user">用户级 (~/.pi/agent)</option><option value="project">项目级 (.pi)</option></select>
+            <select id="settingFile">
+              <option value="settings">settings.json</option>
+              <option value="mcp">mcp.json</option>
+              <option value="models">models.json</option>
+              <option value="keybindings">keybindings.json</option>
+            </select>
+            <button class="btn" onclick="loadSettings()"><svg class="icon"><use href="#i-folder"/></svg>加载</button>
+          </div>
+          <span class="toolbar-hint">选择作用域与文件，编辑后保存</span>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 id="settingsTitle">settings.json</h2>
+            <div class="head-actions">
+              <span class="path-label" id="settingsPath"></span>
+              <button class="btn ghost btn-sm" id="copySettingsBtn" onclick="copySettings()"><svg class="icon"><use href="#i-copy"/></svg>复制</button>
+              <button class="btn primary btn-sm" id="saveSettingsBtn" onclick="saveSettings()"><svg class="icon"><use href="#i-save"/></svg>保存</button>
+            </div>
+          </div>
+          <div class="panel-body no-pad"><textarea id="settingsEditor" spellcheck="false" placeholder="选择文件和作用域，点「加载」…"></textarea></div>
+        </div>
+        <div class="notice small">
+          <span class="notice-icon"><svg class="icon"><use href="#i-alert"/></svg></span>
+          <div><strong>注意</strong><p>保存前会自动备份原文件。<code>$schema</code> 字段可保留以获得编辑器补全，改完记得在 Pi 里 <code>/reload</code>。</p></div>
+        </div>
+      </section>
+
+      <!-- 会话中心 -->
+      <section class="view" id="view-sessions">
+        <div class="view-head">
+          <div><h1>会话中心</h1><p>浏览历史会话、查看对话内容、统计 token 与费用，新开会话或导出删除。</p></div>
+          <div class="head-actions">
+            <button class="btn" onclick="loadSessions()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+            <button class="btn primary" onclick="openNewSession()"><svg class="icon"><use href="#i-plus"/></svg>新开会话</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>会话列表</h2>
+            <div class="head-actions"><span class="badge" id="sessionCount">—</span>
+              <div class="search-box"><svg class="icon"><use href="#i-search"/></svg><input id="sessionSearch" placeholder="搜索会话…" autocomplete="off"></div>
+            </div>
+          </div>
+          <div class="panel-body no-pad">
+            <table class="table" id="sessionTable">
+              <thead><tr><th>会话</th><th>目录</th><th>消息</th><th>Token</th><th>费用</th><th>更新时间</th><th>操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel hidden" id="sessionDetailPanel">
+          <div class="panel-head"><h2 id="sessionDetailTitle">会话详情</h2><button class="btn ghost btn-sm" onclick="closeSessionDetail()"><svg class="icon"><use href="#i-x"/></svg>关闭</button></div>
+          <div class="panel-body"><div class="timeline" id="sessionTimeline"></div></div>
+        </div>
+      </section>
+
+      <!-- 模型与认证 -->
+      <section class="view" id="view-models">
+        <div class="view-head">
+          <div><h1>模型与认证</h1><p>查看默认模型、已保存凭证与自定义端点。<b>密钥一律脱敏，不返回明文。</b></p></div>
+          <div class="head-actions">
+            <button class="btn" onclick="loadModels()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+            <button class="btn primary" onclick="openAddModel()"><svg class="icon"><use href="#i-plus"/></svg>新增模型</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>当前默认</h2></div>
+          <div class="panel-body"><div class="kv-grid" id="modelDefaults"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>已保存凭证 <span class="sub">auth.json · 脱敏</span></h2></div>
+          <div class="panel-body no-pad">
+            <table class="table" id="credTable">
+              <thead><tr><th>Provider</th><th>类型</th><th>密钥</th><th>OAuth</th><th>环境值</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>自定义端点 <span class="sub">models.json · 脱敏</span></h2></div>
+          <div class="panel-body no-pad">
+            <table class="table" id="providerTable">
+              <thead><tr><th>Provider ID</th><th>Base URL</th><th>API</th><th>API Key</th><th>模型</th><th>操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- ===== 员工创建/编辑弹窗 ===== -->
+<div id="employeeModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeEmployeeModal()"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-users"/></svg></span>
+      <div><h2 id="employeeModalTitle">新增员工</h2><p>按岗位配置身份、模型、权限与工作设定</p></div>
+      <button class="icon-btn" onclick="closeEmployeeModal()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-section">
+        <div class="form-section-title"><span>1</span> 身份与归属</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>姓名 <b>*</b><span>例如：小开</span></label>
+            <input id="em-name" placeholder="小开" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <label>员工 ID <b>*</b><span>创建后不建议修改</span></label>
+            <input id="em-id" placeholder="dev-01" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>岗位模板<span>决定默认提示词与权限</span></label>
+            <select id="em-role"><option value="custom">自定义岗位</option></select>
+          </div>
+          <div class="form-row">
+            <label>所属部门<span>可在组织概览中新增</span></label>
+            <select id="em-department"><option value="">未分配</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>汇报对象<span>主管或上级员工，可留空</span></label>
+          <select id="em-reportsTo"><option value="">无</option></select>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>2</span> 模型与技能</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Provider<span>可选；不指定则跟随 Pi 默认模型</span></label>
+            <select id="em-provider"><option value="">不指定（跟随 Pi 默认）</option></select>
+          </div>
+          <div class="form-row">
+            <label>模型<span>选 Provider 后自动列出</span></label>
+            <select id="em-modelSelect"><option value="">先选 Provider</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>模型 ID<span>可手动填写或由上方选择自动填入</span></label>
+          <input id="em-modelId" placeholder="deepseek-chat" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>技能<span>多个用逗号分隔，如 velocity-sql, sql-review</span></label>
+          <input id="em-skills" placeholder="velocity-sql" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>3</span> 权限与预算</div>
+        <div class="form-grid three">
+          <div class="form-row"><label>文件权限</label><select id="em-filesystem"><option value="none">无</option><option value="read-only">只读</option><option value="workspace-write">工作区可写</option></select></div>
+          <div class="form-row"><label>命令权限</label><select id="em-commands"><option value="deny">禁止</option><option value="allowlist">白名单</option><option value="full">全部（需审批）</option></select></div>
+          <div class="form-row"><label>网络权限</label><select id="em-network"><option value="deny">禁止</option><option value="review">需审批</option><option value="allow">允许</option></select></div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row"><label>单任务 Token 上限<span>0 表示不限制</span></label><input id="em-maxTokens" type="number" min="0" placeholder="200000"></div>
+          <div class="form-row"><label>每日费用上限<span>0 表示不限制</span></label><input id="em-maxCost" type="number" min="0" step="0.01" placeholder="50"></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>4</span> 工作设定</div>
+        <div class="form-row">
+          <label>系统提示词<span>这个岗位的工作方式与边界</span></label>
+          <textarea id="em-prompt" rows="3" placeholder="你是开发工程师，按任务卡交付代码，不确定就提问。"></textarea>
+        </div>
+        <div class="form-row">
+          <label>备注<span>可选</span></label>
+          <input id="em-note" placeholder="给未来同事的补充说明" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 保存前自动备份，归档不删文件</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeEmployeeModal()">取消</button>
+        <button class="btn primary" onclick="submitEmployee()"><svg class="icon"><use href="#i-save"/></svg>保存员工</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 部门弹窗 ===== -->
+<div id="departmentModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeDepartmentModal()"></div>
+  <div class="modal-card" style="max-width:480px">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-building"/></svg></span>
+      <div><h2 id="departmentModalTitle">新增部门</h2><p>部门用于组织员工与架构图分组</p></div>
+      <button class="icon-btn" onclick="closeDepartmentModal()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-section">
+        <div class="form-row">
+          <label>部门 ID <b>*</b><span>字母、数字、下划线或短横线</span></label>
+          <input id="dm-id" placeholder="data-team" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>部门名称 <b>*</b><span>例如：数据部</span></label>
+          <input id="dm-name" placeholder="数据部" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>职责描述<span>可选</span></label>
+          <input id="dm-desc" placeholder="查数、指标与可视化结论" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 部门列表保存前会备份</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeDepartmentModal()">取消</button>
+        <button class="btn primary" onclick="submitDepartment()"><svg class="icon"><use href="#i-save"/></svg>保存部门</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新开会话弹窗 ===== -->
+<div id="sessionModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeNewSession()"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-terminal"/></svg></span>
+      <div><h2>新开会话</h2><p>创建一条 Pi 可续聊的会话，稍后在终端继续</p></div>
+      <button class="icon-btn" onclick="closeNewSession()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>工作目录 <b>*</b><span>Pi 会在这个目录里运行会话</span></label>
+        <input id="ns-cwd" placeholder="/Users/lishuai/ai/pi" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label>会话名称<span>可选，方便在列表里识别</span></label>
+        <input id="ns-name" placeholder="例如：SQL 模板优化" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label>第一句话<span>可选，作为会话的首条用户消息</span></label>
+        <textarea id="ns-first" rows="3" placeholder="例如：帮我梳理这个项目的架构"></textarea>
+      </div>
+      <div class="notice" id="ns-notice" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 仅创建会话文件，不会启动模型</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeNewSession()">取消</button>
+        <button class="btn primary" id="ns-submit" onclick="submitNewSession()"><svg class="icon"><use href="#i-plus"/></svg>创建会话</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 员工对话弹窗 ===== -->
+<div id="employeeChatModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeEmployeeChat()"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-terminal"/></svg></span>
+      <div><h2 id="ec-title">与员工对话</h2><p>创建一条绑定员工身份与模型的 Pi 会话</p></div>
+      <button class="icon-btn" onclick="closeEmployeeChat()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="builtin-hint" id="ec-profile"></div>
+      <div class="form-row">
+        <label>第一句话<span>可选，作为发给员工的第一条消息</span></label>
+        <textarea id="ec-first" rows="3" placeholder="例如：帮我梳理这个项目的架构，先给结论"></textarea>
+      </div>
+      <div class="notice" id="ec-notice" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 仅创建会话，不会启动模型</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeEmployeeChat()">取消</button>
+        <button class="btn primary" id="ec-submit" onclick="submitEmployeeChat()"><svg class="icon"><use href="#i-terminal"/></svg>创建对话</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新增模型弹窗 ===== -->
+<div id="modelModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeAddModel()"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-cpu"/></svg></span>
+      <div><h2>新增模型</h2><p>配置一个模型端点并加入 Pi</p></div>
+      <button class="icon-btn" onclick="closeAddModel()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-section">
+        <div class="form-section-title"><span>1</span> 选择服务商</div>
+        <div class="form-row">
+          <label>Provider 类型 <b>*</b><span>内置 Provider 自动带出地址与模型列表</span></label>
+          <select id="mf-providerSelect" onchange="onProviderSelect()">
+            <option value="">— 请选择 Provider —</option>
+            <optgroup label="国内 Provider"><option value="__loading__" disabled>加载中…</option></optgroup>
+            <optgroup label="国外 / 国际 Provider"></optgroup>
+            <option value="__custom__">自定义 Provider（手动输入 ID）</option>
+          </select>
+          <input id="mf-providerId" class="hidden" placeholder="my-ollama" autocomplete="off">
+          <div class="builtin-hint" id="builtinHint"></div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>显示名称<span>可选</span></label>
+            <input id="mf-name" placeholder="My Local LLM">
+          </div>
+          <div class="form-row">
+            <label>API 类型<span>选 Provider 后自动填入，可改</span></label>
+            <select id="mf-api">
+              <option value="openai-completions">openai-completions（国内大多用它）</option>
+              <option value="openai-responses">openai-responses</option>
+              <option value="anthropic-messages">anthropic-messages</option>
+              <option value="google-generative-ai">google-generative-ai</option>
+              <option value="">(内置 provider 可留空)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>2</span> 连接信息</div>
+        <div class="form-row">
+          <label>Base URL <b>*</b><span>如 <code>http://localhost:11434/v1</code></span></label>
+          <input id="mf-baseUrl" placeholder="http://localhost:11434/v1" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>API Key<span>可留空；支持 <code>$环境变量</code> 或 <code>!命令</code></span></label>
+          <input id="mf-apiKey" type="password" placeholder="sk-... 或 $MY_API_KEY" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>3</span> 选择模型</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>模型 <b>*</b><span id="modelSelectHint">先选 Provider，再从列表挑选</span></label>
+            <select id="mf-modelSelect" onchange="onModelSelect()"><option value="">— 先选择 Provider —</option></select>
+            <button type="button" class="inline-link" id="manualModelBtn" onclick="toggleModelManual()">手动输入模型 ID</button>
+            <input id="mf-modelId" class="hidden" placeholder="qwen2.5-coder:7b" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <label>模型显示名<span>选模型时自动填入，可改</span></label>
+            <input id="mf-modelName" placeholder="Qwen 2.5 Coder">
+          </div>
+        </div>
+        <div class="form-grid three">
+          <div class="form-row"><label>上下文窗口</label><input id="mf-contextWindow" type="number" placeholder="128000"></div>
+          <div class="form-row"><label>最大输出</label><input id="mf-maxTokens" type="number" placeholder="16384"></div>
+          <div class="form-row"><label>输入类型</label><select id="mf-input"><option value="text">仅文本</option><option value="text,image">文本 + 图片</option></select></div>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" id="mf-reasoning"> 模型支持思考 / reasoning</label>
+        <label class="checkbox-row"><input type="checkbox" id="mf-authHeader"> 用 Authorization: Bearer 发送 Key</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 密钥写入本机文件，界面显示时脱敏</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeAddModel()">取消</button>
+        <button class="btn primary" onclick="submitAddModel()"><svg class="icon"><use href="#i-save"/></svg>保存模型</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 命令面板 ===== -->
+<div id="commandModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeCommandPalette()"></div>
+  <div class="modal-card command-card">
+    <div class="command-search"><svg class="icon"><use href="#i-search"/></svg><input id="commandInput" placeholder="输入命令或页面名称…" autocomplete="off"><kbd>ESC</kbd></div>
+    <div class="command-list" id="commandList"></div>
+    <div class="command-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>ESC</kbd> 关闭</span></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"><svg class="icon toast-icon"><use href="#i-info"/></svg><span id="toastText"></span></div>
+<script src="/app.js"></script>
+</body>
+</html>
