@@ -1,0 +1,265 @@
+[
+  {
+    "id": "sop_qw_engineering",
+    "name": "QoderWake 工程研发",
+    "description": "QoderWake 工程 skill 链：规划 → 架构决策 → 编码实现 → 测试策略 → 代码评审 → 变更验证 → 交付发布（含 handoff 五要素与 Given/When/Then 验收）",
+    "source": "QoderWake skills: planning / architecture / testing-strategy / code-review / change-validation-planner / git-worktree-branch",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "规划规格",
+        "role": "product",
+        "skill": "planning",
+        "instruction": "按 QoderWake /planning 规范，为目标「{{goal}}」输出精简规格（lean spec），不要直接问用户：\n1) 独立理解需求：复述背景与真实目标，标注假设与不确定点；\n2) Goal Statement：一句话可验证目标；\n3) Deliverables：列出具体产出物（文件/接口/组件/行为），每项可独立验收且可回溯到目标；\n4) Acceptance Criteria：3-6 条可证伪条件，格式为 AC-1 [Happy path] Given … When … Then … / AC-2 [Error path] … / AC-3 [Edge case] … / AC-4 [Non-functional] …；\n5) Implementation Path：可执行步骤，每步写清产出与它如何解除下一步阻塞；\n6) Open Questions：仅列真正阻塞的问题，其余用假设推进。",
+        "acceptance": "结构化规格：目标 + 交付物 + 3-6 条 Given/When/Then AC + 实施路径 + 开放问题；AC 将被下游测试直接当作必测用例。"
+      },
+      {
+        "id": "s2",
+        "name": "架构决策",
+        "role": "developer",
+        "skill": "architecture",
+        "instruction": "按 QoderWake /architecture 输出 ADR（架构决策记录），针对「{{goal}}」：\n- Context：约束与驱动因素（工期、规模、非功能要求）；\n- Decision：明确选择；\n- Options Considered：至少两个备选及其被否原因；\n- Trade-off Analysis：取舍与代价；\n- Consequences：正向/负向后果；\n- Action Items：可勾选的实现步骤清单。\n{{prev}}",
+        "acceptance": "ADR 六段齐全，含备选方案与否决理由；Action Items 可直接作为实现任务。"
+      },
+      {
+        "id": "s3",
+        "name": "编码实现",
+        "role": "developer",
+        "skill": "implementation",
+        "instruction": "按 ADR 的 Action Items 完成「{{goal}}」实现：\n- 只改自己工作区内的文件，给出变更路径清单；\n- 逐条对应 AC，说明每条如何被满足；\n- 运行最小必要检查（语法/单测/启动），记录真实命令与输出；\n- 遇到失败按 failure signature 归类，同一签名不得重复高成本重试两次以上。\n架构结论：\n{{prev}}",
+        "acceptance": "变更清单 + AC 逐条对照 + 真实命令与结果；不确定处标注「需人工确认」，不臆造通过。"
+      },
+      {
+        "id": "s4",
+        "name": "测试策略",
+        "role": "tester",
+        "skill": "testing-strategy",
+        "instruction": "按 QoderWake /testing-strategy 为「{{goal}}」设计并执行验证：\n1) 把规划阶段的每条 AC 当作必测用例；\n2) Prove-It：先加能暴露问题的复现测试（最好修复前失败），再展示同一测试现在通过；无法确定性复现时明确说明并给等价基线证据；\n3) 覆盖 happy / error / edge 三类，不得在未给显式证据时宣称覆盖充分；\n4) 现有断言视为行为契约，不得为适配新代码而弱化；\n5) 交付门禁证据：baseline → regression matrix → 剩余风险。\n规格与实现结论：\n{{prev}}",
+        "acceptance": "测试用例 + 真实执行结果 + happy/error/edge 证据 + 剩余风险；给出明确通过/不通过结论。"
+      },
+      {
+        "id": "s5",
+        "name": "代码评审",
+        "role": "developer",
+        "skill": "code-review",
+        "instruction": "按 QoderWake /code-review 评审「{{goal}}」的变更，逐维度检查：\n- Security：注入/XSS/CSRF/鉴权/密钥硬编码/路径穿越/SSRF；\n- Performance：N+1、热路径复杂度、无界查询、资源泄漏；\n- Correctness：边界/空值、并发、错误处理、off-by-one；\n- Contract Compatibility：向后兼容、默认值语义、输出格式稳定、交付物路径/命名/入口；\n- Maintainability：命名、单一职责、重复、测试覆盖；\n- Existing-Test Integrity：检查现有测试是否被弱化/删除以适配新行为。\n交付门禁：验证交付物路径/入口与声明一致，证据中至少有一个目标验收命令/结果；修复必须给 before signature -> command -> after result 闭环证据。最终给 Verdict: Approve / Request Changes / Needs Discussion。\n测试结论：\n{{prev}}",
+        "acceptance": "Code Review Report：六维度结论 + 交付门禁检查 + before→command→after 闭环证据 + 明确 Verdict。"
+      },
+      {
+        "id": "s6",
+        "name": "变更验证规划",
+        "role": "tester",
+        "skill": "change-validation-planner",
+        "instruction": "按 QoderWake /change-validation-planner 为「{{goal}}」规划最窄可信验证路径：\n1) Identify Change Surface：明确改动面；\n2) Detect Existing Validation Paths：复用已有检查，不重复造轮子；\n3) Order Commands From Narrow To Broad：最窄定向测试 → 静态检查(lint/typecheck) → 跨边界时构建 → 必要时才跑集成/全量；\n4) Stop At The First Useful Confidence Boundary：达到第一个可信置信边界即停；\n5) Track What Remains Unverified：明确列出未验证项；\n6) Prefer Incremental Plans；\n7) 不与诊断/写测试职责交叉。\n评审结论：\n{{prev}}",
+        "acceptance": "Validation ladder（从窄到宽的命令顺序）+ 每步证明什么 + 未验证项 + 推荐停止点。"
+      },
+      {
+        "id": "s7",
+        "name": "交付发布",
+        "role": "developer",
+        "skill": "git-worktree-branch",
+        "instruction": "按 QoderWake /git-worktree-branch 完成「{{goal}}」交付：\n1) 仓库发现：git rev-parse --show-toplevel 定位仓库根；\n2) 确定主干与基线 ref；\n3) 从基线创建带时间戳的分支与 worktree，解析并给出绝对路径；\n4) 所有改动/测试/产物移入该 worktree；\n5) 在任务分支提交已验证 diff；\n6) 仅在凭据/远端/用户授权允许时发布 PR，未拿到 PR URL 不得宣称已发布；失败时给完整命令、错误、当前分支与提交。\n验证结论：\n{{prev}}",
+        "acceptance": "Git Worktree Status：worktree 绝对路径 + 分支 + 提交；发布成功需 PR URL，失败需完整失败信息。"
+      }
+    ]
+  },
+  {
+    "id": "sop_qw_bugfix",
+    "name": "QoderWake 缺陷修复",
+    "description": "QoderWake sde-debug 链：环境检测 → 复现 → 隔离 → 诊断 → 修复 → 强制交接测试 → 回归验证",
+    "source": "QoderWake skills: sde-debug / testing-strategy / code-review",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "环境检测与复现",
+        "role": "tester",
+        "skill": "sde-debug",
+        "instruction": "按 QoderWake /sde-debug 处理「{{goal}}」：\nStep 0 环境检测：探测可用 git/gh 工具，判断代码库是否为 git 仓库；若是则先建分支再动代码；\nStep 1 复现：明确期望 vs 实际行为、精确复现步骤、影响范围（何时开始/谁受影响），捕获契约锚点（现有测试/API 预期）；\nStep 2 隔离：缩小到具体组件/服务/代码路径，检查近期变更（部署/配置/依赖），审查日志与错误信息。",
+        "acceptance": "复现签名（错误类型+关键信息+命令上下文）、完整复现步骤、契约锚点、隔离出的可疑范围。"
+      },
+      {
+        "id": "s2",
+        "name": "诊断与根因",
+        "role": "developer",
+        "skill": "sde-debug",
+        "instruction": "按 QoderWake /sde-debug 诊断「{{goal}}」：\nStep 3 诊断：提出假设并验证、追踪代码路径、定位根因（非表象）、确定最小回归测试范围；\nFailure Loop Guard：跟踪失败签名，同一环境/依赖/构建签名出现两次即停止重复高成本命令，改用至少两种不同策略；仍无新证据才进入 environment-blocked 分支并写明原因；每次高成本重跑前必须给出新证据或新假设。\n复现结论：\n{{prev}}",
+        "acceptance": "根因陈述（非表象）+ 契约锚点 + 最小测试范围；若环境受阻，给出完整失败签名与已尝试的两种替代策略。"
+      },
+      {
+        "id": "s3",
+        "name": "修复实现",
+        "role": "developer",
+        "skill": "sde-debug",
+        "instruction": "按 QoderWake /sde-debug Step 4 修复「{{goal}}」：\n- 提出修复并解释、评估副作用与边界；\n- 运行回归测试确认未破坏既有行为；\n- 确认 happy/error/edge 路径的 testing-strategy 证据；\n- 产出实现级修复计划与风险说明；\n- 强制交接：向 /testing-strategy 提供复现签名、根因陈述、契约锚点、最小测试范围。\n诊断结论：\n{{prev}}",
+        "acceptance": "改动清单 + before signature -> command -> after result 闭环证据 + 面向测试阶段的 handoff 四要素。"
+      },
+      {
+        "id": "s4",
+        "name": "回归验证",
+        "role": "tester",
+        "skill": "testing-strategy",
+        "instruction": "按 QoderWake /testing-strategy 回归「{{goal}}」：\n- 先运行相关现有目标测试并捕获 baseline；\n- Prove-It：同一复现测试修复前失败、修复后通过；\n- happy/error/edge 三类显式证据；\n- 交付门禁证据：baseline → regression matrix → 剩余风险；\n- 发现根因确认+行为回归、修复验证将启动、受影响路径无测试、环境受阻等触发条件时明确上报。\n修复结论：\n{{prev}}",
+        "acceptance": "baseline + 回归矩阵 + happy/error/edge 证据 + 明确通过/不通过结论；不得弱化现有断言。"
+      },
+      {
+        "id": "s5",
+        "name": "交付评审",
+        "role": "developer",
+        "skill": "code-review",
+        "instruction": "按 QoderWake /code-review 交付门禁评审「{{goal}}」：\n检查交付物路径/命名/入口与声明一致；证据中至少有一个目标验收命令/结果；修复必须有 before signature -> command -> after result 闭环证据；检查现有测试完整性；给出 Verdict: Approve / Request Changes / Needs Discussion。\n回归结论：\n{{prev}}",
+        "acceptance": "交付门禁检查结论 + 闭环证据核验 + 明确 Verdict；门禁不完整时阻断交付建议。"
+      }
+    ]
+  },
+  {
+    "id": "sop_qw_delivery",
+    "name": "QoderWake 交付前验证",
+    "description": "QoderWake change-validation-planner + code-review：变更验证阶梯 → 评审 → 交付门禁（适合小改动快速过闸）",
+    "source": "QoderWake skills: change-validation-planner / code-review",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "变更面识别",
+        "role": "developer",
+        "skill": "change-validation-planner",
+        "instruction": "按 QoderWake /change-validation-planner 为「{{goal}}」识别变更面：列出改动的文件、接口、行为与契约影响，标注哪些是高风险边界；复用已有验证路径，不重复造轮子。",
+        "acceptance": "Scope reviewed：变更文件/接口/行为清单 + 高风险边界 + 可复用的现有检查。"
+      },
+      {
+        "id": "s2",
+        "name": "验证阶梯",
+        "role": "tester",
+        "skill": "change-validation-planner",
+        "instruction": "按 QoderWake /change-validation-planner 为「{{goal}}」规划并执行最窄可信验证：\n最窄定向测试 → 静态检查(lint/typecheck) → 跨边界时构建 → 必要时集成/全量；\n达到第一个可信置信边界即停；\n每步记录真实命令与结果；明确列出未验证项与推荐停止点。\n变更面：\n{{prev}}",
+        "acceptance": "Validation ladder（命令顺序）+ 每步证明什么 + 未验证项 + 推荐停止点。"
+      },
+      {
+        "id": "s3",
+        "name": "交付门禁评审",
+        "role": "developer",
+        "skill": "code-review",
+        "instruction": "按 QoderWake /code-review 为「{{goal}}」做交付门禁：\n核对交付物路径/命名/入口；确认至少一个目标验收命令/结果；修复需 before signature -> command -> after result 闭环；检查现有测试完整性；给 Verdict: Approve / Request Changes / Needs Discussion。\n验证结论：\n{{prev}}",
+        "acceptance": "交付门禁结论 + Verdict + 未闭环项清单。"
+      }
+    ]
+  },
+  {
+    "id": "sop_product_dev",
+    "name": "产品研发",
+    "description": "从需求澄清到交付汇总的标准研发流程",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "需求澄清",
+        "role": "product",
+        "instruction": "基于目标「{{goal}}」梳理需求规格：背景、用户场景、功能清单、非功能要求与验收清单。信息不足时列出需人工确认的问题，不要臆造。",
+        "acceptance": "输出结构化需求规格与验收清单，关键不确定点单独列出。"
+      },
+      {
+        "id": "s2",
+        "name": "技术方案",
+        "role": "developer",
+        "instruction": "针对目标「{{goal}}」给出技术方案：模块划分、关键接口、数据流、风险与备选方案。\n上一阶段结论：\n{{prev}}",
+        "acceptance": "方案可落地，含接口边界、风险点与工时粗估。"
+      },
+      {
+        "id": "s3",
+        "name": "编码实现",
+        "role": "developer",
+        "instruction": "按目标「{{goal}}」完成实现，只改自己工作区内的文件，并给出变更清单与自测结果。\n上一阶段结论：\n{{prev}}",
+        "acceptance": "有可验证的产出物、变更路径与自测记录；不确定处标注需人工确认。"
+      },
+      {
+        "id": "s4",
+        "name": "测试验证",
+        "role": "tester",
+        "instruction": "针对目标「{{goal}}」设计并执行验证：正向、边界、异常场景，记录实际结果。\n上一阶段结论：\n{{prev}}",
+        "acceptance": "输出用例与结果、缺陷清单（含严重程度与复现步骤）、是否通过结论。"
+      },
+      {
+        "id": "s5",
+        "name": "交付汇总",
+        "role": "product",
+        "instruction": "汇总目标「{{goal}}」全流程产出，给出交付结论、遗留问题与后续建议。\n各阶段结论：\n{{prev}}",
+        "acceptance": "一页式汇总：结论、交付物、风险/遗留、下一步。"
+      }
+    ]
+  },
+  {
+    "id": "sop_bugfix",
+    "name": "缺陷修复",
+    "description": "问题定位 → 修复 → 回归 → 关闭",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "问题定位",
+        "role": "tester",
+        "instruction": "针对「{{goal}}」复现并定位问题：现象、复现步骤、影响范围、初步根因。",
+        "acceptance": "明确的复现路径与根因判断，无法复现时说明环境与条件。"
+      },
+      {
+        "id": "s2",
+        "name": "修复方案",
+        "role": "developer",
+        "instruction": "针对「{{goal}}」给出修复方案与回归范围。\n定位结论：\n{{prev}}",
+        "acceptance": "方案含改动点、副作用评估与回归清单。"
+      },
+      {
+        "id": "s3",
+        "name": "代码修复",
+        "role": "developer",
+        "instruction": "按方案修复「{{goal}}」，只改自己工作区内的文件。\n方案结论：\n{{prev}}",
+        "acceptance": "改动清单、修复说明、自测结果。"
+      },
+      {
+        "id": "s4",
+        "name": "回归验证",
+        "role": "tester",
+        "instruction": "对「{{goal}}」执行回归验证，确认原问题已修复且无新增缺陷。\n修复结论：\n{{prev}}",
+        "acceptance": "回归用例与结果、明确通过/不通过结论。"
+      }
+    ]
+  },
+  {
+    "id": "sop_content",
+    "name": "内容创作",
+    "description": "选题 → 资料 → 初稿 → 评审 → 定稿",
+    "steps": [
+      {
+        "id": "s1",
+        "name": "选题立项",
+        "role": "product",
+        "instruction": "围绕「{{goal}}」明确受众、目标、核心观点与大纲。",
+        "acceptance": "大纲含核心观点、章节结构与交付形式。"
+      },
+      {
+        "id": "s2",
+        "name": "资料收集",
+        "role": "product",
+        "instruction": "为「{{goal}}」收集支撑资料与数据，标注来源与可信度。\n大纲：\n{{prev}}",
+        "acceptance": "资料清单含来源、关键结论与可用性判断。"
+      },
+      {
+        "id": "s3",
+        "name": "初稿撰写",
+        "role": "product",
+        "instruction": "按大纲完成「{{goal}}」初稿，结构化输出全文。\n资料结论：\n{{prev}}",
+        "acceptance": "完整初稿，含标题、正文与引用。"
+      },
+      {
+        "id": "s4",
+        "name": "评审修改",
+        "role": "tester",
+        "instruction": "评审「{{goal}}」初稿并给出具体修改意见。\n初稿：\n{{prev}}",
+        "acceptance": "逐条修改意见，标注必须修改项。"
+      },
+      {
+        "id": "s5",
+        "name": "定稿发布",
+        "role": "developer",
+        "instruction": "根据评审意见完成「{{goal}}」终稿。\n评审意见：\n{{prev}}",
+        "acceptance": "终稿全文 + 修改说明。"
+      }
+    ]
+  }
+]

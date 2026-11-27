@@ -1,2 +1,12 @@
 # 运行时自动备份，含历史配置快照，不进入版本库
 .backups/
+
+# Pi 子进程隔离运行时（含 auth.json / models.json 等本地配置与会话软链）
+.pi-agent-runtime/
+
+# 本地状态、缓存与留存日志
+.unlock-state.json
+.session-retention.json
+.session-retention-log.json
+.china-holidays.json
+.usd-cny-rate.json

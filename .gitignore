@@ -46,3 +46,11 @@ plans/
 .pi/settings.json
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
+
+# Pi Admin 本地运行时数据（会话消息、用量账本、员工工作区与执行记录）
+my-workspace/org/messages.jsonl
+my-workspace/org/employee-usage.json
+my-workspace/org/sop-runs.json
+my-workspace/org/tasks.json
+my-workspace/org/runs/
+my-workspace/org/workspaces/

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "grp_mwxm6awk2ec6d6",
+    "name": "产品研发组",
+    "description": "主要负责saas产品功能开发、bug修复等系统问题。",
+    "leader": "emp-mwx7w4eu",
+    "members": [
+      "emp-mwx7w4eu",
+      "emp-mwxcamdk",
+      "emp-mwxera5w"
+    ],
+    "skills": [],
+    "workflows": [
+      "QoderWake 工程研发",
+      "QoderWake 缺陷修复"
+    ],
+    "createdAt": "2026-11-26T13:54:34.305Z",
+    "updatedAt": "2026-11-27T03:29:57.400Z"
+  }
+]

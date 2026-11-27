@@ -12,16 +12,16 @@
   {
     "id": "engineering",
     "name": "研发部",
-    "description": "方案设计与代码交付"
+    "description": "方案设计与代码交付",
+    "skills": [],
+    "workflows": [
+      "QoderWake 工程研发",
+      "QoderWake 缺陷修复"
+    ]
   },
   {
     "id": "quality",
     "name": "质量部",
     "description": "测试验证与评审"
-  },
-  {
-    "id": "yanfa",
-    "name": "研发部",
-    "description": "负责saas产品的研发"
   }
 ]

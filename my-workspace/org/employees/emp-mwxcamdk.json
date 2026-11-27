@@ -1,0 +1,27 @@
+{
+  "id": "emp-mwxcamdk",
+  "name": "hypo",
+  "role": "tester",
+  "department": "quality",
+  "reportsTo": "",
+  "status": "active",
+  "model": {
+    "provider": "deepseek",
+    "id": "deepseek-flash"
+  },
+  "skills": [],
+  "permissions": {
+    "filesystem": "workspace-write",
+    "commands": "allowlist",
+    "network": "allow",
+    "budget": {
+      "maxTokensPerTask": 0,
+      "maxCostPerDay": 0
+    }
+  },
+  "workspace": "org/workspaces/emp-mwxcamdk",
+  "systemPrompt": "你是测试工程师，负责用例设计、回归验证与缺陷报告。",
+  "note": "",
+  "createdAt": "2026-11-26T09:18:33.547Z",
+  "updatedAt": "2026-11-26T10:26:54.473Z"
+}

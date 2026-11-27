@@ -1,0 +1,27 @@
+{
+  "id": "emp-mwxera5w",
+  "name": "benben",
+  "role": "product",
+  "department": "engineering",
+  "reportsTo": "",
+  "status": "active",
+  "model": {
+    "provider": "deepseek",
+    "id": "deepseek-flash"
+  },
+  "skills": [],
+  "permissions": {
+    "filesystem": "read-only",
+    "commands": "deny",
+    "network": "deny",
+    "budget": {
+      "maxTokensPerTask": 0,
+      "maxCostPerDay": 0
+    }
+  },
+  "workspace": "org/workspaces/emp-mwxera5w",
+  "systemPrompt": "你是产品经理，负责澄清需求、编写规格与验收清单。",
+  "note": "",
+  "createdAt": "2026-11-26T10:27:09.175Z",
+  "updatedAt": "2026-11-26T10:27:18.549Z"
+}
