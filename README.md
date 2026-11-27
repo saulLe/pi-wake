@@ -1,206 +1,127 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# Pi Wake — 基于 Pi 的本地数字员工工作台
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+> 本项目是 [Pi Coding Agent](https://pi.dev) 的本地二次开发版本。**上游 Pi 源码保持不变**，所有定制内容都集中在 `my-workspace/`，这样上游更新时可以直接重新导入并合并定制层。
 
-# Pi
+Pi 本身是一个极简、可扩展的编码 Agent：支持交互式终端、RPC 模式、JSON 模式和 TypeScript SDK，可用扩展、技能、提示词模板和主题深度定制。本仓库在它之上做了一套**纯本地的 Web 管理端 + 数字员工组织体系**，把模型、配置、会话、团队和费用统一管起来。
 
-Pi is a minimal, extensible agent harness that you can make your own.
+## 核心能力
 
-Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](packages/coding-agent/docs/extensions.md), [skills](packages/coding-agent/docs/skills.md), [prompt templates](packages/coding-agent/docs/prompt-templates.md), and [themes](packages/coding-agent/docs/themes.md). Bundle them as [Pi packages](packages/coding-agent/docs/packages.md) and share via npm or git.
+| 能力 | 说明 |
+|---|---|
+| **本地 Web 管理端** | 零新增依赖，Node 原生 HTTP 服务，只监听 `127.0.0.1:8787`；图形化管理资源、模型、设置、会话和组织，不用改 Pi 源码 |
+| **数字员工组织** | 部门 / 团队 / 员工三级结构，支持岗位、模型、技能、权限与预算配置；技能按「部门 → 团队 → 员工」继承并去重 |
+| **会话中心** | 三栏联动：左侧归属（员工 / 协作群 / 我的会话）、中间会话列表、右侧实时对话；群聊直接挂在会话中心，支持 @ 唤醒任意员工 |
+| **群聊与群 SOP** | 可视化定义协作流程，多个 SOP 可并行；内置 QoderWake 工程研发、缺陷修复、交付前验证等模板 |
+| **用量与费用统计** | 基于模型真实 `usage`，不按文本估算；概览有每日用量多折线图（Token / 费用双轴、按模型分线、悬浮明细），员工累计用量可重置 |
+| **人民币计价** | 国内模型原生人民币；DeepSeek 区分工作日高峰 / 空闲时段；海外模型按真实账单或模型单价折算人民币 |
+| **技能与规范** | 内置 Velocity/SQL 优化规范、技能库管理、SOP 模板管理；可从 QoderWake 导出目录批量导入技能与工作流 |
+| **管家与命令面板** | 浮动管家可问答配置、代劳导入；`⌘K` / `Ctrl+K` 全局搜索页面和操作 |
 
-Pi ships with powerful defaults but skips features like sub-agents and plan mode. Ask Pi to build what you want, or install a package that does it your way.
+## 快速开始
 
-Use Pi [interactively](packages/coding-agent/docs/usage.md), automate it in [print or JSON mode](packages/coding-agent/docs/cli.md), control it over [RPC](packages/coding-agent/docs/rpc.md), or build apps with the [Pi TypeScript SDK](packages/coding-agent/docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
+### 1. 启动管理端
 
-## Getting started
+推荐双击 `my-workspace/admin/启动管理端.command`（普通终端启动，能避开沙箱对 Pi 锁文件的拦截）。
 
-Install the command-line interface:
-
-```bash
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-On Windows:
-
-```shell
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
-
-The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
+也可以手动启动：
 
 ```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+cd my-workspace/admin
+bash start.sh              # 默认 8787 端口
 ```
 
-Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
+浏览器打开 **http://127.0.0.1:8787**。停止服务在终端按 `Ctrl+C`。
 
-Start Pi in the directory where you want it to work:
+> 需要 Node.js 22.19 或更高版本。管理端自身无第三方依赖；Pi 子进程通过一个隔离运行时目录同步配置，不会触碰 `~/.pi/agent/*.lock`。
+
+### 2. 在定制工作区里使用 Pi
 
 ```bash
-cd /path/to/project
+cd my-workspace
 pi
 ```
 
-For a built-in AI provider, run `/login` inside Pi to connect a subscription or API key. Then give Pi a task.
-
-See the [documentation](https://pi.dev/docs/latest) for full setup and usage instructions, or [visit pi.dev](https://pi.dev) for demos.
-
-## Run with Nix
+进入后可用：
 
 ```bash
-nix run github:earendil-works/pi/stable
+/skills                 # 查看可用技能
+/skill:velocity-sql     # 强制加载 Velocity/SQL 规范
+/sqlreview              # 示例扩展：打印 SQL 检查规则
+/reload                 # 修改技能或扩展后热重载
 ```
 
-`stable` points at the latest release. Install it with `nix profile add github:earendil-works/pi/stable` and update with `nix profile upgrade pi`. Use a release tag such as `github:earendil-works/pi/v1.0.0` to pin a version, or `github:earendil-works/pi` for unreleased changes on `main`. Nix builds Pi from source.
+## 界面预览
 
-Supports ARM64 and x86-64 on Linux and macOS. Use `nix build .` or `nix run .` to build or run your checkout.
+| 概览与用量 | 会话中心 | 组织与员工 |
+|---|---|---|
+| ![概览](my-workspace/admin/public/preview-overview.png) | ![会话中心](my-workspace/admin/public/preview-sessions-3col.png) | ![组织概览](my-workspace/admin/public/preview-org.png) |
 
-Nix builds are offline, so the bundled model data comes from a pi.dev model catalog revision pinned in `nix/model-catalog.json`. At runtime, Pi still overlays newer catalog data from pi.dev as usual. The Nix workflow replaces the pin on `main` when it no longer matches the checkout, for example after a provider is added or gains a new model type. To refresh it by hand:
+完整功能说明见 **[管理端手册](my-workspace/admin/README.md)**，调研资料见 **[文档索引](my-workspace/docs/README.md)**。
+
+## 目录结构
+
+```text
+.
+├── my-workspace/                  # 本仓库的全部定制内容
+│   ├── AGENTS.md                  # 项目级代码规范（Pi 启动时自动加载）
+│   ├── admin/                     # 本地 Web 管理端（零新增依赖）
+│   │   ├── server.mjs             # Node 原生 HTTP 后端 + Pi RPC 管理
+│   │   ├── start.sh               # 启动脚本
+│   │   ├── 启动管理端.command     # 推荐入口：普通终端启动
+│   │   └── public/                # 前端 HTML / CSS / JS
+│   ├── docs/                      # Pi 调研、可行性分析、数字员工规划
+│   ├── org/                       # 部门、员工、团队、SOP 等配置
+│   └── .pi/
+│       ├── skills/velocity-sql/   # Velocity / SQL 优化技能
+│       └── extensions/            # 示例扩展
+├── packages/                      # 上游 Pi monorepo（未修改）
+├── apps/                          # 上游应用
+└── scripts/                       # 上游构建与发布脚本
+```
+
+## 定制约定
+
+1. **不改上游源码**：所有二开逻辑都在 `my-workspace/`，方便跟随 Pi 上游更新。
+2. **零新增依赖**：管理端只用 Node 内置模块，前端是原生 HTML / CSS / JS。
+3. **真实用量口径**：所有 token 和金额都来自模型返回的 `usage`；员工重置只清账本，不改原始会话。
+4. **人民币优先**：国内模型原生人民币计价，DeepSeek 按高峰 / 空闲时段；海外账单才按汇率折算。
+5. **本地数据不入库**：会话消息、用量账本、员工工作区、隔离运行时目录等已加入 `.gitignore`，避免密钥和本地数据被提交。
+6. **写前备份**：配置修改、重命名 / 删除会话、技能覆盖等操作都会先备份到 `admin/.backups/`。
+
+## 开发命令
+
+上游 Pi monorepo 的常用命令：
 
 ```bash
-npm run update:model-catalog-pin
+npm install --ignore-scripts   # 安装依赖，不执行生命周期脚本
+npm run build                  # 刷新模型数据并构建所有包
+npm run build:offline          # 使用已有模型数据离线构建
+npm run check                  # 代码检查、格式化与类型检查
+./test.sh                      # 运行测试（无 API Key 时跳过 LLM 相关测试）
+./pi-test.sh                   # 从源码运行 Pi
 ```
 
-## Packages
+### 上游 Pi 包
 
-This monorepo contains the Pi CLI and its supporting libraries.
+| 包 | 说明 |
+|---|---|
+| `@earendil-works/pi-coding-agent` | 交互式编码 Agent CLI |
+| `@earendil-works/pi-ai` | 统一的多 Provider 大模型 API |
+| `@earendil-works/pi-agent-core` | 带工具调用与状态管理的 Agent 运行时 |
+| `@earendil-works/pi-durable` | 持久化会话、任务与文档运行时 |
+| `@earendil-works/pi-tui` | 差分渲染的终端 UI 库 |
+| `@earendil-works/chord` | 跨进程对象运行时（契约、文档、存储、HTTP） |
+| `@earendil-works/pi-telemetry` | 厂商中立的遥测契约与参考适配器 |
 
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Object runtime for apps across processes: contracts, documents, a store, links, plugins with hot reload, HTTP, workers, web and terminal clients |
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-durable](packages/durable)** | Durable conversation, task, and document runtime |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+更多上游用法见 [Pi 官方文档](https://pi.dev/docs/latest)、[扩展开发](packages/coding-agent/docs/extensions.md)、[RPC 模式](packages/coding-agent/docs/rpc.md) 与 [TypeScript SDK](packages/coding-agent/docs/sdk.md)。
 
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
+## 安全与隐私
 
-## Permissions & Containerization
+- 管理端只绑定 `127.0.0.1`，不对外暴露端口。
+- 模型密钥在界面中一律脱敏显示；Pi 子进程使用隔离目录 `admin/.pi-agent-runtime/` 读取配置，不改动真实 `~/.pi/agent` 的锁文件。
+- 群聊、SOP、用量统计和会话记录都保存在本机；只有模型请求会发往你配置的 Provider。
+- 上游基线：`73315ff`（2026-11-26 导入）。
 
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
+## 许可
 
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi).
-
-## Development
-
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
-```
-
-### Using local packages outside the monorepo
-
-Build every public package into one coherent local artifact set:
-
-```bash
-npm run pack:packages -- --out .artifacts/pi-packages
-```
-
-This refreshes model data before building `pi-ai`. To avoid network access when
-model data is already hydrated, pass `--offline-model-data`.
-
-Then configure an external project to consume one package and resolve all of
-its Pi dependencies from the same artifact set. npm is the default:
-
-```bash
-node scripts/use-local-packages.mjs \
-  --manifest .artifacts/pi-packages/manifest.json \
-  --consumer ../my-project \
-  --package @earendil-works/pi-durable \
-  --package @earendil-works/pi-agent-core
-cd ../my-project
-npm install --ignore-scripts
-```
-
-For a pnpm project, point `--consumer` at the workspace root:
-
-```bash
-node scripts/use-local-packages.mjs \
-  --manifest .artifacts/pi-packages/manifest.json \
-  --consumer ../my-project \
-  --package @earendil-works/pi-agent-core \
-  --package-manager pnpm
-cd ../my-project
-pnpm install --ignore-scripts
-```
-
-Repeat `--package` for each direct dependency. The command updates the
-consumer's `package.json` with content-addressed local `file:` references. It
-writes transitive overrides to `package.json` for npm or `pnpm-workspace.yaml`
-for pnpm. Keep the artifact directory available while installing or updating
-the consumer. Re-run both commands after changing Pi source.
-
-## Building standalone binaries from release source
-
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
-
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
-
-The archive includes release model data and native prebuilds. `--offline-model-data` uses that model data without refreshing provider catalogs. The script installs dependencies and builds the executable with its runtime assets; pass `--skip-install` if dependencies are already provided.
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
-- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
-- Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Install lock generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
-
-## License
-
-MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+沿用上游 Pi 的 **MIT** 许可证。上游项目与文档版权归原作者所有，本仓库的定制部分同样按 MIT 使用。
