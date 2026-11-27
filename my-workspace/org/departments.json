@@ -13,7 +13,13 @@
     "id": "engineering",
     "name": "研发部",
     "description": "方案设计与代码交付",
-    "skills": [],
+    "skills": [
+      "@研发工程",
+      "@产品创新",
+      "@通用工具",
+      "@Redmine流程",
+      "@测试质量"
+    ],
     "workflows": [
       "QoderWake 工程研发",
       "QoderWake 缺陷修复"
@@ -22,6 +28,10 @@
   {
     "id": "quality",
     "name": "质量部",
-    "description": "测试验证与评审"
+    "description": "测试验证与评审",
+    "skills": [
+      "@测试质量",
+      "@Redmine流程"
+    ]
   }
 ]

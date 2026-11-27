@@ -17,7 +17,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync, realpathSync, symlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, rmSync, realpathSync, symlinkSync } from "node:fs";
 import { join, resolve, relative, dirname, basename, extname, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -72,6 +72,7 @@ const BUTLER_NAME = "Pi Admin 管家";
 const ORG_DIR = join(WORKSPACE, "org");
 const ORG_EMPLOYEES_DIR = join(ORG_DIR, "employees");
 const ORG_DEPARTMENTS_FILE = join(ORG_DIR, "departments.json");
+const ORG_SKILL_BUNDLES_FILE = join(ORG_DIR, "skill-bundles.json");
 const ORG_ROLES_FILE = join(ORG_DIR, "roles.json");
 // P2+ 协作闭环数据
 const ORG_GROUPS_FILE = join(ORG_DIR, "groups.json");
@@ -303,6 +304,10 @@ function isDomesticProvider(provider) {
  * - 海外服务商：账单金额（USD）按实时汇率折算人民币。
  */
 function usageCostInfo(u, meta = {}) {
+  // WorkBuddy 免密钥桥接走平台积分制，不按 token 计人民币；credit 仅作展示信息。
+  // 避免 deepseek-v4.1-flash 这类模型名被 deepseekRates 误按官方价计费。
+  if (String(meta.provider || "").toLowerCase() === "workbuddy")
+    return { cny: 0, mode: "workbuddy-credit", label: "WorkBuddy 积分" };
   const rates = deepseekRates(meta.model, meta.provider);
   if (rates) {
     const peak = isDeepSeekPeak(meta.ts || Date.now());
@@ -737,6 +742,36 @@ function friendlySessionName(name) {
     .replace(/^任务\s+task_[a-z0-9_-]+\s*$/i, "任务");
 }
 
+/**
+ * 自动任务会话文件集合：只认「触发器直接发起」的那次执行。
+ * 触发器扫描过程中派发出去的具体工作会话（如 Redmine 工单）属于对话任务，
+ * 否则定时任务一扫描就把工单会话塞满自动任务栏。
+ */
+function autoTaskSessionFiles() {
+  const set = new Set();
+  let triggerTaskIds = new Set();
+  try {
+    for (const t of listOrgTasks()) {
+      if (t.triggerId || t.source === "trigger") {
+        triggerTaskIds.add(t.id);
+        if (t.sessionFile) set.add(resolve(t.sessionFile));
+      }
+    }
+  } catch {}
+  try {
+    if (existsSync(ORG_RUNS_DIR)) {
+      for (const f of readdirSync(ORG_RUNS_DIR)) {
+        if (!f.endsWith(".json")) continue;
+        const r = readJsonSafe(join(ORG_RUNS_DIR, f), null);
+        // run 记录只带 taskId，靠任务卡是否触发器来源来判定
+        // 新 run 直接带 origin；老 run 靠上面的触发器任务卡反查
+        if (r?.sessionFile && (r.origin === "auto" || triggerTaskIds.has(r.taskId))) set.add(resolve(r.sessionFile));
+      }
+    }
+  } catch {}
+  return set;
+}
+
 // ---------- 会话自动清理 ----------
 // 默认关闭。开启后按「会话文件最后修改时间」清理 N 天未更新的会话，真正删除以释放空间。
 // 三重保护：管家固定会话、当前正在 RPC 对话的会话、最近 minKeep 条（无论是否过期）。
@@ -838,6 +873,7 @@ function runSessionRetention(reason = "manual") {
 function collectSessions() {
   if (!existsSync(SESSION_DIR)) return [];
   const out = [];
+  const autoFiles = autoTaskSessionFiles();
   try {
     const dirs = readdirSync(SESSION_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
     for (const d of dirs) {
@@ -922,6 +958,11 @@ function collectSessions() {
             id: header.id || f.replace(/\.jsonl$/, ""),
             cwd: header.cwd || "",
             employeeId: empId,
+            // 群归属：管理端新建会话时写入 header，Pi 会忽略这个字段
+            groupId: String(header.adminGroupId || ""),
+            // 只认触发器任务反查：老会话里先前写入的 origin=auto 不可信
+            // （Redmine 派发的工单会话曾被统一标成 auto），这里按当前规则重新归类
+            origin: autoFiles.has(resolve(p)) ? "auto" : "chat",
             name: friendlySessionName(sessionName) || userText || f,
             preview: userText,
             version: header.version || 1,
@@ -1043,12 +1084,19 @@ function readSession(file) {
         // 把「正文」与「过程块（thinking / 工具调用）」分开：正文给人看，过程块交给前端折叠展示
         let text = "";
         const blocks = [];
+        const images = [];
         if (typeof c === "string") {
           text = c;
         } else if (Array.isArray(c)) {
           for (const b of c) {
             if (!b || typeof b !== "object") continue;
-            if (b.type === "text") text += (b.text || "") + "\n";
+            if (b.type === "image") {
+              const mime = String(b.mimeType || "image/png");
+              const data = typeof b.data === "string"
+                ? b.data.replace(/^data:image\/[\w+-]+;base64,/i, "")
+                : "";
+              if (data) images.push(`data:${mime};base64,${data}`);
+            } else if (b.type === "text") text += (b.text || "") + "\n";
             else if (b.type === "thinking") blocks.push({ kind: "thinking", text: String(b.thinking || "").slice(0, 4000) });
             else if (b.type === "toolCall" || b.type === "tool_call")
               blocks.push({ kind: "tool", name: String(b.name || b.toolName || "工具"), detail: toolArgSummary(b.arguments || b.args) });
@@ -1071,7 +1119,10 @@ function readSession(file) {
           model: e.message.model || "",
           provider: e.message.provider || "",
           text: String(text).trim().slice(0, 4000),
+          images,
           blocks,
+          // 工具结果常作为独立消息出现，带上工具名便于前端折叠展示「bash」等
+          toolName: e.message.toolName || e.message.tool || "",
           ts: e.timestamp,
           isError: e.message.isError || false,
           usage,
@@ -1094,10 +1145,37 @@ function encodeSessionDir(cwd) {
 }
 
 /**
+ * 校验前端传来的图片，转成 Pi RPC 需要的 ImageContent。
+ * 接受 base64 裸串或 dataUrl；单张上限 8MB、最多 6 张，防止撑爆会话/请求。
+ */
+const CHAT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const CHAT_IMAGE_MAX_COUNT = 6;
+function normalizeChatImages(input) {
+  if (!Array.isArray(input) || !input.length) return [];
+  const allowed = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+  const out = [];
+  for (const raw of input.slice(0, CHAT_IMAGE_MAX_COUNT)) {
+    if (!raw || typeof raw !== "object") continue;
+    let mime = String(raw.mimeType || "image/png").toLowerCase();
+    let data = String(raw.data || "");
+    const m = data.match(/^data:(image\/[\w+-]+);base64,([\s\S]*)$/i);
+    if (m) { mime = m[1].toLowerCase(); data = m[2]; }
+    if (!allowed.has(mime)) continue;
+    const clean = data.replace(/\s/g, "");
+    if (!clean || !/^[A-Za-z0-9+/=]+$/.test(clean)) continue;
+    const bytes = Math.floor(clean.length * 0.75);
+    if (bytes > CHAT_IMAGE_MAX_BYTES)
+      throw Object.assign(new Error("单张图片不能超过 8MB"), { status: 413 });
+    out.push({ type: "image", data: clean, mimeType: mime });
+  }
+  return out;
+}
+
+/**
  * 创建一个 Pi 可识别的 v3 会话文件。
  * 只写 header + 可选 session_info（名称）+ 可选首条 user 消息，之后交给 Pi 续聊。
  */
-function createSessionFile({ cwd, name, firstMessage }) {
+function createSessionFile({ cwd, name, firstMessage, origin = "chat", groupId = "" }) {
   if (typeof cwd !== "string" || !isAbsolute(cwd))
     throw Object.assign(new Error("工作目录必须是绝对路径"), { status: 400 });
   if (!existsSync(cwd) || !statSync(cwd).isDirectory())
@@ -1112,7 +1190,9 @@ function createSessionFile({ cwd, name, firstMessage }) {
   const file = join(dir, `${ts.replace(/[:.]/g, "-")}_${id}.jsonl`);
   if (existsSync(file)) throw Object.assign(new Error("会话文件已存在，请重试"), { status: 409 });
 
-  const lines = [{ type: "session", version: 3, id, timestamp: ts, cwd: realCwd }];
+  // origin 用于区分「对话任务」与「自动任务」，adminGroupId 标记会话归属的群组；
+  // 这些额外字段不影响 Pi 读取（普通字段会被忽略）
+  const lines = [{ type: "session", version: 3, id, timestamp: ts, cwd: realCwd, ...(origin !== "chat" ? { origin } : {}), ...(groupId ? { adminGroupId: groupId } : {}) }];
   const nextId = () => randomUUID().replace(/-/g, "").slice(0, 8);
   let parentId = null;
 
@@ -1477,6 +1557,32 @@ function listOrgDepartments() {
   const data = readOrgJson(ORG_DEPARTMENTS_FILE, DEFAULT_DEPARTMENTS);
   return Array.isArray(data) && data.length ? data : DEFAULT_DEPARTMENTS;
 }
+
+// ---------- 技能包：把常用技能打成包，部门/团队/个人可用 @包名 整包引用 ----------
+/** 读取全部技能包：[{ id, name, description, skills:[技能名] }] */
+function listSkillBundles() {
+  const data = readOrgJson(ORG_SKILL_BUNDLES_FILE, []);
+  return Array.isArray(data) ? data : [];
+}
+/** 把一组技能项里的 @包名 展开成具体技能名；循环引用用 seen 防护 */
+function expandSkillBundleRefs(items, seen = new Set()) {
+  const bundles = listSkillBundles();
+  const byName = new Map(bundles.map((b) => [String(b.name || "").trim(), b]));
+  const byId = new Map(bundles.map((b) => [String(b.id || "").trim(), b]));
+  const out = [];
+  for (const raw of items) {
+    const s = String(raw || "").trim();
+    if (!s) continue;
+    if (!s.startsWith("@")) { out.push(s); continue; }
+    const key = s.slice(1);
+    const b = byName.get(key) || byId.get(key);
+    if (!b || seen.has(key)) continue; // 未知包或循环引用：跳过，不污染技能列表
+    seen.add(key);
+    out.push(...expandSkillBundleRefs(Array.isArray(b.skills) ? b.skills : [], new Set(seen)));
+    seen.delete(key);
+  }
+  return [...new Set(out)];
+}
 /** 员工所属部门（或 null） */
 function getEmployeeDepartment(employee) {
   if (!employee?.department) return null;
@@ -1494,7 +1600,8 @@ function effectiveEmployeeSkills(employee, group = null) {
   const inherited = Array.isArray(dept?.skills) ? dept.skills.map((s) => String(s).trim()).filter(Boolean) : [];
   const team = group && Array.isArray(group.skills) ? group.skills.map((s) => String(s).trim()).filter(Boolean) : [];
   const own = Array.isArray(employee?.skills) ? employee.skills.map((s) => String(s).trim()).filter(Boolean) : [];
-  return [...new Set([...inherited, ...team, ...own])];
+  // @包名 展开为包内技能；未定义的包会被忽略
+  return [...new Set([...expandSkillBundleRefs(inherited), ...expandSkillBundleRefs(team), ...expandSkillBundleRefs(own)])];
 }
 /** 员工继承到的工作流（SOP 模板名/id 列表）：部门 + 团队（传入时） */
 function effectiveEmployeeWorkflows(employee, group = null) {
@@ -1508,8 +1615,8 @@ function skillsPromptBlock(employee, group = null) {
   const all = effectiveEmployeeSkills(employee, group);
   if (!all.length) return "- 无特别指定";
   const dept = getEmployeeDepartment(employee);
-  const inherited = new Set(Array.isArray(dept?.skills) ? dept.skills.map(String) : []);
-  const team = new Set(group && Array.isArray(group.skills) ? group.skills.map(String) : []);
+  const inherited = new Set(expandSkillBundleRefs(Array.isArray(dept?.skills) ? dept.skills.map(String) : []));
+  const team = new Set(expandSkillBundleRefs(group && Array.isArray(group.skills) ? group.skills.map(String) : []));
   return all.map((s) => {
     const src = team.has(s) ? "团队" : inherited.has(s) ? "部门" : "个人";
     return `- ${s}（${src}继承）`;
@@ -1678,6 +1785,10 @@ function normalizeTask(body, existing = {}) {
     status,
     source: String(body.source ?? existing.source ?? "manual"),
     triggerId: String(body.triggerId ?? existing.triggerId ?? ""),
+    // 任务执行会话使用的模型（"provider|modelId"），空表示跟随 Pi 默认
+    model: String(body.model ?? existing.model ?? ""),
+    // 自主工作派生出的新任务（如 Redmine 工单会话）使用哪个模型
+    dispatchModel: String(body.dispatchModel ?? existing.dispatchModel ?? ""),
     sessionFile: String(body.sessionFile ?? existing.sessionFile ?? ""),
     artifacts: Array.isArray(body.artifacts) ? body.artifacts : existing.artifacts || [],
     tags: Array.isArray(body.tags) ? body.tags.map((t) => String(t).trim()).filter(Boolean) : existing.tags || [],
@@ -1790,9 +1901,11 @@ function buildEmployeeSystemPrompt(employee) {
     employee.reportsTo ? `- 汇报对象：${employee.reportsTo}` : "- 汇报对象：无",
     ``,
     `# 工作模型`,
-    employee.model?.id
-      ? `- 优先使用模型：${employee.model.provider || "默认 Provider"} / ${employee.model.id}`
-      : "- 模型：跟随 Pi 当前默认配置",
+    task.model
+      ? `- 本次任务已由调度器指定模型：${task.model}（请勿自行切换，按既定模型执行）`
+      : employee.model?.id
+        ? `- 优先使用模型：${employee.model.provider || "默认 Provider"} / ${employee.model.id}`
+        : "- 模型：跟随 Pi 当前默认配置",
     ``,
     `# 可用技能（含部门继承）`,
     skillsPromptBlock(employee),
@@ -1878,8 +1991,12 @@ function chatBroadcast(ctx, event, data) {
 
 function touchIdle(ctx) {
   if (ctx.idleTimer) clearTimeout(ctx.idleTimer);
-  // 10 分钟无客户端则回收子进程，避免泄漏
-  ctx.idleTimer = setTimeout(() => closeChatSession(ctx.file, "idle"), 10 * 60 * 1000);
+  // 定时到点时仍有客户端订阅（或正在生成）就跳过回收并重新计时，
+  // 避免把正在使用的聊天/管家会话误杀成「连接断开」。
+  ctx.idleTimer = setTimeout(() => {
+    if (ctx.clients.size > 0 || ctx.running) { touchIdle(ctx); return; }
+    closeChatSession(ctx.file, "idle");
+  }, 10 * 60 * 1000);
   ctx.idleTimer.unref?.();
 }
 
@@ -1919,7 +2036,7 @@ function refreshRuntimeAgentDir() {
 }
 
 /** 获取或创建某会话的 RPC 子进程 */
-function getChatSession(file) {
+function getChatSession(file, envOverrides = {}) {
   if (!safePath(file) || !file.endsWith(".jsonl") || !existsSync(file))
     throw Object.assign(new Error("会话文件不可访问"), { status: 400 });
   let ctx = chatSessions.get(file);
@@ -1935,9 +2052,12 @@ function getChatSession(file) {
     // 彻底剔除所有 WorkBuddy 沙箱/注入变量，避免 shim 通过非 NODE_OPTIONS 途径生效。
     // 关键：NODE_OPTIONS 通过 --require 注入 node-language-shim，它会拦截 proper-lockfile
     // 删除 trust.json.lock，导致 Pi 启动即崩。BASH_ENV/TOYBOX/SANDBOX 等也要一起清掉。
-    if (/^CODEBUDDY_|^BROKER|^WORKBUDDY_|^SANDBOX|^TOYBOX|SHIM|SAFE_DELETE|NODE_OPTIONS|BASH_ENV|ELECTRON_RUN_AS_NODE|DYLD_/i.test(k)) delete childEnv[k];
+    if (/^CODEBUDDY_|^BROKER|^WORKBUDDY_|^SANDBOX|^TOYBOX|SHIM|SAFE_DELETE|NODE_OPTIONS|BASH_ENV|ELECTRON_RUN_AS_NODE|DYLD_|^HTTPS?_PROXY$|^ALL_PROXY$/i.test(k)) delete childEnv[k];
   }
   childEnv.PI_CODING_AGENT_DIR = RUNTIME_AGENT_DIR;
+  // 任务级模型提示：Pi 子进程通过 bash 跑 redmine-scan.sh → dispatch.py 时继承这些变量，
+  // 让派发出的新任务沿用自主工作配置的「派生会话模型」。
+  for (const [k, v] of Object.entries(envOverrides)) if (v) childEnv[k] = String(v);
   console.error(`[chat] spawn Pi: NODE_OPTIONS=${JSON.stringify(childEnv.NODE_OPTIONS)} exec=${process.execPath}`);
   const child = spawn(process.execPath, [cli, "--mode", "rpc", "--session", file], {
     cwd,
@@ -2006,6 +2126,9 @@ function getChatSession(file) {
         const payload = {
           text, usage, fx: fxPublic(), ...meta,
           cost: info ? { cny: info.cny, mode: info.mode, label: info.label } : null,
+          // 模型调用失败（如上游 WAF 403）时 Pi 会给出 stopReason=error + errorMessage，
+          // 任务收尾据此区分「正常完成」与「一条消息都没生成就失败」，避免误标 review。
+          error: rec.message?.stopReason === "error" ? String(rec.message?.errorMessage || "模型调用失败").slice(0, 500) : "",
         };
         // 统一在这里累计员工用量：普通会话、群聊 @ 唤醒、群 SOP 任务都走这条路径；
         // 群消息里的 usage 是同一轮的副本，不再重复计入。
@@ -2103,10 +2226,18 @@ function executeTask(taskId) {
   const ws = ensureEmployeeWorkspace(emp);
   // 每个任务独立会话文件，避免污染员工日常对话
   // 会话名是给人看的：直接用任务标题，不把内部 task id 拼进去
-  const session = createSessionFile({ cwd: ws.dir, name: `任务 · ${task.title}` });
-  const ctx = getChatSession(session.file);
+  // 只有触发器直接发起的那次执行算「自动任务」；它派出去处理具体事情（Redmine 工单等）
+  // 的会话归「对话任务」，否则定时任务一扫就把工单会话刷满自动任务栏。
+  const isTriggerRun = !!(task.triggerId || task.source === "trigger");
+  const session = createSessionFile({ cwd: ws.dir, name: `任务 · ${task.title}`, origin: isTriggerRun ? "auto" : "chat" });
+  const ctx = getChatSession(session.file, {
+    PI_ADMIN_MODEL: task.model || "",
+    PI_ADMIN_DISPATCH_MODEL: task.dispatchModel || task.model || "",
+  });
   const run = {
     id: genId("run"), taskId, employeeId: emp.id, sessionFile: session.file,
+    origin: isTriggerRun ? "auto" : "chat",
+    model: String(task.model || ""),
     startedAt: now(), finishedAt: "", status: "running", result: "", usage: null, error: "",
   };
   mkdirSync(ORG_RUNS_DIR, { recursive: true });
@@ -2129,6 +2260,7 @@ function executeTask(taskId) {
   // 监听本次会话的结果（仅本 task 订阅，不干扰聊天 SSE）
   const onMessageEnd = (payload) => {
     state.text += (payload.text || "");
+    if (payload.error) state.lastError = payload.error;
     if (payload.usage) state.usage = mergeUsage(state.usage, payload.usage);
     if (payload.cost) {
       state.costCny += payload.cost.cny || 0;
@@ -2167,7 +2299,25 @@ function executeTask(taskId) {
     : task.source === "group_chat"
       ? buildGroupChatPrompt(groupCtx, emp, task.description || "", task.chatContext || [])
       : buildTaskPrompt(task, emp);
-  ctx.rpcSend({ type: "prompt", message: prompt });
+  // 若该任务指定了模型，先通过 RPC 切到目标模型，再发送 prompt，确保整轮执行用指定模型。
+  // set_model 是异步的：等它返回（或 3 秒兜底）再发 prompt，避免模型尚未切换就开始执行。
+  const sendPrompt = () => ctx.rpcSend({ type: "prompt", message: prompt });
+  const modelSpec = String(task.model || "");
+  if (modelSpec.includes("|")) {
+    const [provider, modelId] = modelSpec.split("|");
+    const reqId = ctx.rpcSend({ type: "set_model", provider, modelId });
+    let sent = false;
+    const proceed = () => { if (sent) return; sent = true; sendPrompt(); };
+    ctx.pending.set(reqId, (rec) => {
+      if (!rec.success)
+        orgEmit("task_status", { taskId, status: "doing", note: `模型 ${modelSpec} 不可用，已回退默认模型：${rec.error || ""}` });
+      proceed();
+    });
+    const timer = setTimeout(() => { ctx.pending.delete(reqId); proceed(); }, 3000);
+    timer.unref?.();
+  } else {
+    sendPrompt();
+  }
   return { runId: run.id, sessionFile: session.file, taskId };
 }
 
@@ -2211,6 +2361,18 @@ function finalizeTaskRun(taskId, aborted) {
   const idx = tasks.findIndex((t) => t.id === taskId);
   if (idx < 0) return;
   const task = tasks[idx];
+  // 模型从头到尾没产出任何内容、且最后是报错（例如上游 WAF 403），按失败处理而不是「执行完成」，
+  // 这样任务不会停在 review 假装成功，可在任务看板重开重试。
+  if (!aborted && state.lastError && !state.text.trim()) {
+    transitionTask(task, "blocked", "模型调用失败");
+    task.lastResult = state.lastError;
+    tasks[idx] = task;
+    saveOrgTasks(tasks);
+    if (run) { run.status = "failed"; run.error = state.lastError; writeOrgFile(runPath, run); }
+    orgEmit("task_failed", { taskId, note: `「${task.title}」执行失败：${state.lastError.slice(0, 180)}` });
+    if (task.sopRunId) { try { onSopTaskFailed(task, state.lastError); } catch {} }
+    return;
+  }
   if (aborted) {
     transitionTask(task, "blocked", "执行被中止");
     task.lastResult = state.text.slice(0, 20000);
@@ -2663,6 +2825,9 @@ function fireTrigger(triggerId, reason = "schedule") {
     assignee: trg.employeeId,
     source: "trigger",
     triggerId: trg.id,
+    // 任务运行模型直接给本次会话；派生会话模型随任务带到下游派发（Redmine 工单等）
+    model: trg.model || "",
+    dispatchModel: trg.dispatchModel || "",
     tags: ["autonomous", `trigger:${trg.id}`],
   }, {});
   task.history = [{ from: "", to: "todo", at: now(), note: `自主工作触发（${reason}）` }];
@@ -2937,7 +3102,7 @@ function restartProcess() {
     `done`,
     `LEFT=$(lsof -tiTCP:${PORT} -sTCP:LISTEN 2>/dev/null)`,
     `if [ -n "$LEFT" ]; then echo "$LEFT" | xargs kill -9 2>/dev/null; sleep 0.5; fi`,
-    `unset NODE_OPTIONS`,
+    `unset NODE_OPTIONS HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy`,
     `exec node "${SERVER_ENTRY}" --port ${PORT} --workspace "${WORKSPACE}" --agent-dir "${AGENT_DIR}"`,
   ].join("\n");
   try {
@@ -2953,6 +3118,252 @@ function restartProcess() {
   }
   // 让本进程优雅退出，同时关闭全部 RPC 子进程
   setTimeout(() => shutdown(), 250);
+}
+
+// ---------- WorkBuddy 免密钥 LLM 桥接 ----------
+// 把 WorkBuddy 应用级免密钥接口（仅流式、wbpk 鉴权）包装成标准 OpenAI
+// /chat/completions，供 Pi 当作普通 openai-completions provider 使用。
+// 凭据放在 .wb-bridge.json（不入库），未配置时所有 /wb/* 返回 503。
+const WB_BRIDGE_FILE = join(__dirname, ".wb-bridge.json");
+
+function wbBridgeConfig() {
+  try {
+    const c = JSON.parse(readFileSync(WB_BRIDGE_FILE, "utf8"));
+    if (!c.endpoint || !c.publishableKey) return null;
+    return {
+      endpoint: String(c.endpoint).replace(/\/+$/, ""),
+      publishableKey: String(c.publishableKey),
+      defaultModel: String(c.defaultModel || "auto"),
+    };
+  } catch { return null; }
+}
+
+/** GET /wb/models —— OpenAI 模型列表；失败时返回内置静态列表 */
+async function wbListModels(res) {
+  const cfg = wbBridgeConfig();
+  if (!cfg) return send(res, 503, { error: "未配置 WorkBuddy 桥接凭据" });
+  const hdrs = { "x-wb-webapp-access-key": cfg.publishableKey, Origin: "http://127.0.0.1:" + PORT };
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15000);
+    let r;
+    try {
+      r = await fetch(`${cfg.endpoint}/.cloud/llm/models`, { headers: hdrs, signal: ctl.signal });
+    } finally { clearTimeout(timer); }
+    if (!r.ok) throw new Error(`models HTTP ${r.status}`);
+    const list = await r.json();
+    const data = (Array.isArray(list) ? list : [])      .filter((m) => m && m.id && m.enabled !== false && m.disabled !== true)
+      .filter((m) => !/image|video|edit|free$/i.test(m.id))
+      .map((m) => ({
+        id: m.id,
+        object: "model",
+        created: Math.floor(Date.now() / 1000),
+        owned_by: m.vendor || "workbuddy",
+      }));
+    return send(res, 200, { object: "list", data });
+  } catch (e) {
+    return send(res, 502, { error: `获取模型列表失败：${e.message}` });
+  }
+}
+
+function wbSseHeaders(res) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+}
+
+/**
+ * WorkBuddy 上游 WAF 对单请求 body 有约 30KB 硬限制（实测 29KB 通过、30KB 被拦）。
+ * 超限前自动降载：system 与最后一条消息必须保留原样，中间按「内容最长优先」裁剪，
+ * 每条被裁剪的内容尾部追加提示，让模型知道原文被折叠、可回读文件。
+ * 目标是 body 控制在 ~26KB 以内，留足 header 与转义膨胀余量。
+ */
+const WB_BODY_SAFE_BYTES = 26 * 1024;
+function trimBridgeMessages(payload) {
+  const msgs = payload.messages;
+  const bodyBytes = () => Buffer.byteLength(JSON.stringify(payload), "utf8");
+  if (bodyBytes() <= WB_BODY_SAFE_BYTES) return;
+  // 可裁剪的消息：system(0) 与「最后一条 user 提问」保留，其余（assistant / toolResult / 旧 user）
+  // 按长度优先裁剪。工具结果往往是大头（如整份工单规范），但它已落盘可回读，裁掉尾部是安全的。
+  let keepIdx = -1;
+  for (let i = msgs.length - 1; i >= 1; i--) if (msgs[i].role === "user") { keepIdx = i; break; }
+  const candidates = [];
+  for (let i = 1; i < msgs.length; i++) {
+    if (i === keepIdx) continue;
+    const c = msgs[i].content;
+    const text = Array.isArray(c) ? c.map((b) => (typeof b?.text === "string" ? b.text : "")).join("") : (typeof c === "string" ? c : "");
+    if (text.length > 200) candidates.push({ i, len: text.length });
+  }
+  candidates.sort((a, b) => b.len - a.len); // 先砍最长的
+  const fold = (msg, keep) => {
+    const c = msg.content;
+    if (Array.isArray(c)) {
+      msg.content = c.map((b, idx) => {
+        if (typeof b?.text !== "string" || idx !== 0) return b;
+        return { ...b, text: b.text.slice(0, keep) + `\n…（内容过长已由桥接层折叠，原文 ${b.text.length} 字，可重新读取来源文件）` };
+      });
+    } else if (typeof c === "string") {
+      msg.content = c.slice(0, keep) + `\n…（内容过长已由桥接层折叠，原文 ${c.length} 字，可重新读取来源文件）`;
+    }
+  };
+  let guard = 0;
+  for (const { i } of candidates) {
+    if (bodyBytes() <= WB_BODY_SAFE_BYTES) break;
+    if (guard++ > 50) break;
+    const c = msgs[i].content;
+    const text = Array.isArray(c) ? c.map((b) => (typeof b?.text === "string" ? b.text : "")).join("") : (typeof c === "string" ? c : "");
+    fold(msgs[i], Math.max(300, Math.floor(text.length * 0.35)));
+  }
+  // 极端情况：仍超限则继续按比例压所有中间消息，直到达标或缩到最小
+  guard = 0;
+  while (bodyBytes() > WB_BODY_SAFE_BYTES && guard++ < 30) {
+    let folded = false;
+    for (let i = 1; i < msgs.length; i++) {
+      if (i === keepIdx) continue;
+      const c = msgs[i].content;
+      const text = Array.isArray(c) ? c.map((b) => (typeof b?.text === "string" ? b.text : "")).join("") : (typeof c === "string" ? c : "");
+      if (text.length > 400) { fold(msgs[i], Math.floor(text.length * 0.5)); folded = true; }
+    }
+    if (!folded) break;
+  }
+}
+
+/**
+ * POST /wb/chat/completions
+ * 入：标准 OpenAI 请求（可能 stream:true 或 false）
+ * 出：stream:true → 原样 SSE 透传；stream:false → 聚合为单个 JSON ChatCompletion
+ */
+async function wbChatCompletions(req, res) {
+  const cfg = wbBridgeConfig();
+  if (!cfg) return send(res, 503, { error: "未配置 WorkBuddy 桥接凭据" });
+  let body;
+  try { body = await readBody(req); }
+  catch { return send(res, 400, { error: "请求体不是合法 JSON" }); }
+
+  const wantStream = body.stream === true;
+  const payload = {
+    ...body,
+    model: body.model || cfg.defaultModel,
+    stream: true, // WorkBuddy 只支持流式
+    stream_options: { ...(body.stream_options || {}), include_usage: true },
+  };
+  // 每轮必须以 system 消息开头，否则 WorkBuddy 拒绝；缺失则补一条
+  if (!Array.isArray(payload.messages) || payload.messages.length === 0)
+    return send(res, 400, { error: "messages 不能为空" });
+  if (payload.messages[0]?.role !== "system")
+    payload.messages = [{ role: "system", content: "You are a helpful assistant." }, ...payload.messages];
+  // WorkBuddy 上游 WAF 对单请求 body 有约 30KB 硬限制，超过直接 403 拦截页。
+  // 任务会话把整份工单规范读进工具结果，第二轮就容易超限。这里在发送前自动降载：
+  // 保留 system 与最后一条（当前提问）不动，从中间最长的内容开始裁剪，直到 body 落在安全线内。
+  trimBridgeMessages(payload);
+
+  const hdrs = {
+    "x-wb-webapp-access-key": cfg.publishableKey,
+    Origin: "http://127.0.0.1:" + PORT,
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
+  const ctl = new AbortController();
+  const abort = () => ctl.abort();
+  req.on("close", abort);
+  res.on("close", abort);
+  const timer = setTimeout(() => ctl.abort(), 10 * 60 * 1000);
+
+  let upstream;
+  try {
+    upstream = await fetch(`${cfg.endpoint}/.cloud/llm/chat/completions`, {
+      method: "POST", headers: hdrs, body: JSON.stringify(payload), signal: ctl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const msg = e.name === "AbortError" ? "上游请求中断" : `上游连接失败：${e.message}`;
+    if (wantStream) { wbSseHeaders(res); res.write(`data: ${JSON.stringify({ error: { message: msg, type: "server_error" } })}\n\n`); return res.end(); }
+    return send(res, 502, { error: msg });
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    clearTimeout(timer);
+    let errText = "";
+    try { errText = (await upstream.text()).slice(0, 500); } catch {}
+    let msg = `WorkBuddy HTTP ${upstream.status}${errText ? `：${errText}` : ""}`;
+    try { const j = JSON.parse(errText); msg = j.error?.message || j.message || msg; } catch {}
+    if (wantStream) { wbSseHeaders(res); res.write(`data: ${JSON.stringify({ error: { message: msg, type: "server_error" } })}\n\n`); return res.end(); }
+    return send(res, upstream.status, { error: msg });
+  }
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  const model = payload.model;
+  const completionId = "chatcmpl-" + randomUUID().replace(/-/g, "").slice(0, 24);
+  const created = Math.floor(Date.now() / 1000);
+
+  if (wantStream) {
+    wbSseHeaders(res);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+    } catch (e) {
+      try { res.write(`data: ${JSON.stringify({ error: { message: `流中断：${e.message}`, type: "server_error" } })}\n\n`); } catch {}
+    } finally { clearTimeout(timer); try { res.end(); } catch {} }
+    return;
+  }
+
+  // 非流式：聚合 SSE → 单个 ChatCompletion JSON
+  let buf = "";
+  let content = "";
+  let reasoning = "";
+  let finishReason = "stop";
+  let usage = null;
+  const toolMap = new Map();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let chunk;
+        try { chunk = JSON.parse(data); } catch { continue; }
+        if (chunk.usage) usage = chunk.usage;
+        const delta = chunk.choices?.[0]?.delta || {};
+        if (delta.content) content += delta.content;
+        if (delta.reasoning_content) reasoning += delta.reasoning_content;
+        if (delta.finish_reason) finishReason = delta.finish_reason;
+        for (const tc of (delta.tool_calls || [])) {
+          const i = tc.index ?? 0;
+          const cur = toolMap.get(i) || { id: "", type: "function", function: { name: "", arguments: "" } };
+          if (tc.id) cur.id = tc.id;
+          if (tc.type) cur.type = tc.type;
+          if (tc.function?.name) cur.function.name += tc.function.name;
+          if (tc.function?.arguments) cur.function.arguments += tc.function.arguments;
+          toolMap.set(i, cur);
+        }
+      }
+    }
+  } catch (e) {
+    clearTimeout(timer);
+    return send(res, 502, { error: `流读取失败：${e.message}` });
+  }
+  clearTimeout(timer);
+  const message = { role: "assistant", content };
+  if (reasoning) message.reasoning_content = reasoning;
+  if (toolMap.size) message.tool_calls = [...toolMap.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+  return send(res, 200, {
+    id: completionId, object: "chat.completion", created, model,
+    choices: [{ index: 0, message, finish_reason: finishReason }],
+    usage: usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  });
 }
 
 // ---------- 路由 ----------
@@ -3083,13 +3494,18 @@ async function handleApi(req, res, url) {
     const { file, message, streamingBehavior } = body;
     if (typeof message !== "string" || !message.trim())
       throw Object.assign(new Error("消息不能为空"), { status: 400 });
+    const images = normalizeChatImages(body.images);
     const ctx = getChatSession(file);
     if (ctx.running && !streamingBehavior)
       throw Object.assign(new Error("模型正在回复，请稍候或先停止"), { status: 409 });
     const cmd = { type: "prompt", message };
     if (streamingBehavior) cmd.streamingBehavior = streamingBehavior;
+    if (images.length) cmd.images = images;
     // 先回显用户消息给前端（Pi 的 user message_start 事件在 RPC 下不一定推送）
-    chatBroadcast(ctx, "user_echo", { text: message });
+    // 图片用 dataUrl 回传供气泡显示；不塞进 message 文本，避免污染 prompt
+    const echo = { text: message };
+    if (images.length) echo.images = images.map((im) => `data:${im.mimeType};base64,${im.data}`);
+    chatBroadcast(ctx, "user_echo", echo);
     const id = ctx.rpcSend(cmd);
     return send(res, 200, { ok: true, id, file });
   }
@@ -3149,8 +3565,11 @@ async function handleApi(req, res, url) {
     if (cwd.startsWith(empRoot + "/") && !existsSync(cwd)) mkdirSync(cwd, { recursive: true });
     const name = String(body.name || "").replace(/[\r\n]+/g, " ").trim()
       || `新会话 ${now().slice(5, 16).replace("T", " ")}`;
-    const created = createSessionFile({ cwd, name });
-    return send(res, 200, { ok: true, ...created, name });
+    const groupId = String(body.groupId || "").trim();
+    if (groupId && !listOrgGroups().some((g) => g.id === groupId))
+      throw Object.assign(new Error("群组不存在"), { status: 400 });
+    const created = createSessionFile({ cwd, name, groupId });
+    return send(res, 200, { ok: true, ...created, name, groupId });
   }
 
   // 重命名会话：更新 session_info.name（写前自动备份）
@@ -3216,6 +3635,7 @@ async function handleApi(req, res, url) {
     const { file } = body;
     if (!safePath(file) || !file.endsWith(".jsonl") || !existsSync(file)) throw Object.assign(new Error("文件不可访问"), { status: 400 });
     const backup = backupFile(file);
+    try { closeChatSession(file, "delete"); } catch {}
     unlinkSync(file);
     return send(res, 200, { ok: true, backup });
   }
@@ -3446,22 +3866,27 @@ async function handleApi(req, res, url) {
     const allGroups = listOrgGroups();
     const resolve = (e) => {
       const dept = getEmployeeDepartment(e);
-      const inherited = Array.isArray(dept?.skills) ? dept.skills.map(String) : [];
-      const own = Array.isArray(e.skills) ? e.skills.map(String) : [];
+      const inheritedRaw = Array.isArray(dept?.skills) ? dept.skills.map(String) : [];
+      const ownRaw = Array.isArray(e.skills) ? e.skills.map(String) : [];
       // 员工所在的团队（成员或 leader）
       const myGroups = allGroups.filter((g) => (g.members || []).includes(e.id) || g.leader === e.id);
-      const teamSkills = [...new Set(myGroups.flatMap((g) => Array.isArray(g.skills) ? g.skills.map(String) : []))];
+      const teamRaw = [...new Set(myGroups.flatMap((g) => Array.isArray(g.skills) ? g.skills.map(String) : []))];
       const teamFlows = [...new Set(myGroups.flatMap((g) => Array.isArray(g.workflows) ? g.workflows.map(String) : []))];
+      const inherited = expandSkillBundleRefs(inheritedRaw);
+      const own = expandSkillBundleRefs(ownRaw);
+      const teamSkills = expandSkillBundleRefs(teamRaw);
       const teamSkillsOnly = teamSkills.filter((s) => !inherited.includes(s) && !own.includes(s));
       return {
         id: e.id, department: e.department, departmentName: dept?.name || "",
         inheritedSkills: inherited, teamSkills: teamSkillsOnly,
+        inheritedRefs: inheritedRaw, ownRefs: ownRaw, teamRefs: teamRaw,
         groupIds: myGroups.map((g) => g.id), groupNames: myGroups.map((g) => g.name),
         ownSkills: own, effectiveSkills: [...new Set([...inherited, ...teamSkills, ...own])],
         workflows: [...new Set([...effectiveEmployeeWorkflows(e), ...teamFlows])],
       };
     };
     return send(res, 200, {
+      bundles: listSkillBundles(),
       employees: employees.map(resolve),
       departments: listOrgDepartments().map((d) => ({
         id: d.id, name: d.name,
@@ -3573,6 +3998,32 @@ async function handleApi(req, res, url) {
       throw Object.assign(new Error(`部门「${blocked.map((d) => d.name).join("、")}」下仍有员工，请先迁移再删除`), { status: 400 });
     const backup = writeOrgFile(ORG_DEPARTMENTS_FILE, body.departments);
     return send(res, 200, { ok: true, departments: body.departments, backup, note: "部门已保存" });
+  }
+
+  // 技能包：把常用技能打成包，分配时可用 @包名 整包引用
+  if (path === "/api/org/skill-bundles" && method === "GET")
+    return send(res, 200, listSkillBundles());
+
+  if (path === "/api/org/skill-bundles" && method === "POST") {
+    const body = await readBody(req);
+    requireUnlock(body);
+    if (!Array.isArray(body.bundles)) throw Object.assign(new Error("bundles 必须是数组"), { status: 400 });
+    const seen = new Set();
+    for (const b of body.bundles) {
+      if (!b || !/^[A-Za-z0-9_\u4e00-\u9fa5-]{1,40}$/.test(String(b.name || "").trim()))
+        throw Object.assign(new Error("技能包名称不合法（仅字母数字、中文、下划线、短横线）"), { status: 400 });
+      if (seen.has(String(b.name).trim())) throw Object.assign(new Error(`技能包名称重复：${b.name}`), { status: 400 });
+      seen.add(String(b.name).trim());
+      if (b.skills != null && !Array.isArray(b.skills)) throw Object.assign(new Error(`技能包「${b.name}」的 skills 必须是数组`), { status: 400 });
+    }
+    const normalized = body.bundles.map((b) => ({
+      id: String(b.id || `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`).trim(),
+      name: String(b.name).trim(),
+      description: String(b.description || "").trim(),
+      skills: [...new Set((Array.isArray(b.skills) ? b.skills : []).map((s) => String(s).trim()).filter(Boolean))],
+    }));
+    const backup = writeOrgFile(ORG_SKILL_BUNDLES_FILE, normalized);
+    return send(res, 200, { ok: true, bundles: normalized, backup, note: "技能包已保存" });
   }
 
   if (path === "/api/org/roles" && method === "GET")
@@ -4102,6 +4553,8 @@ async function handleApi(req, res, url) {
       employeeId: String(body.employeeId || "").trim(),
       taskTitle: String(body.taskTitle || "").trim() || "未命名自主任务",
       prompt: String(body.prompt || "").slice(0, 8000),
+      model: String(body.model || "").trim(),
+      dispatchModel: String(body.dispatchModel || "").trim(),
       type: ["interval", "cron", "once"].includes(body.type) ? body.type : "interval",
       intervalMin: Number.isFinite(intervalMin) && intervalMin >= 1 ? intervalMin : 60,
       cron: String(body.cron || "").trim(),
@@ -4278,7 +4731,9 @@ function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   try {
-    if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
+    if (url.pathname === "/wb/models" && req.method === "GET") await wbListModels(res);
+    else if (url.pathname === "/wb/chat/completions" && req.method === "POST") await wbChatCompletions(req, res);
+    else if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
     else serveStatic(req, res, url);
   } catch (e) {
     send(res, e.status || 500, { error: e.message || String(e) });

@@ -1,0 +1,77 @@
+[
+  {
+    "id": "bundle_testing",
+    "name": "测试质量",
+    "description": "测试工程师开工前加载：测试策略、UI/UX 走查、浏览器自动化、缺陷状态口径、缺陷子单挂父",
+    "skills": [
+      "testing-strategy",
+      "ui-ux-pro-max",
+      "browser-harness",
+      "redmine-bug-resolve-status",
+      "redmine-parent-issue-link"
+    ]
+  },
+  {
+    "id": "bundle_redmine",
+    "name": "Redmine流程",
+    "description": "Redmine 工单全流程：查改工单、统一脚本、建单挂父、提交人标注、工单整洁、口径澄清",
+    "skills": [
+      "redmine",
+      "redmine-bridge",
+      "redmine-create-with-parent",
+      "redmine-ticket-submitter-tag",
+      "redmine-ticket-tidy",
+      "im-clarify"
+    ]
+  },
+  {
+    "id": "bundle_engineering",
+    "name": "研发工程",
+    "description": "开发/评审日常：架构决策、代码评审、需求开发、缺陷修复、调试、系统设计、规划、Git/Worktree、MR 冲突",
+    "skills": [
+      "architecture",
+      "code-review",
+      "feature-dev",
+      "feature-review",
+      "bug-fix",
+      "sde-debug",
+      "system-design",
+      "planning",
+      "change-validation-planner",
+      "codebase-memory",
+      "projects",
+      "fullstack-dev",
+      "git-worktree-branch",
+      "gitlab",
+      "mr-conflict",
+      "ponytail",
+      "meione-wiki"
+    ]
+  },
+  {
+    "id": "bundle_product",
+    "name": "产品创新",
+    "description": "产品/创新研究：PRD、竞品调研、用户反馈、需求池、实验设计、机会评分、可行性检查、原型、变更日志",
+    "skills": [
+      "prd-generation",
+      "competitor-research",
+      "user-feedback-analysis",
+      "requirement-pool-management",
+      "experiment-design",
+      "innovation-opportunity-scoring",
+      "codebase-feasibility-check",
+      "prototype-builder",
+      "changelog-management"
+    ]
+  },
+  {
+    "id": "bundle_common",
+    "name": "通用工具",
+    "description": "跨角色通用：业务数据查询、邮件、快速开群配方",
+    "skills": [
+      "sql-sentinel-query",
+      "email",
+      "group-kickoff"
+    ]
+  }
+]

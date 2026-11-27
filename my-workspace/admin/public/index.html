@@ -46,6 +46,7 @@
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></symbol>
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9 2 2-2 2 2 2-3 3-2-2-2 2"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5zM3 7v10l9 5 9-5V7M12 12v10"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></symbol>
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
@@ -312,6 +313,16 @@
             <div class="panel-head"><h2>岗位模板</h2><span class="badge" id="roleCount">—</span></div>
             <div class="panel-body"><div id="roleList" class="mini-list"><div class="skeleton-line"></div></div></div>
           </div>
+        </div>
+
+        <div class="section-head">
+          <div><h2>技能包</h2><p>把常用技能打成包，在部门 / 团队 / 员工的技能配置里选 <code>@包名</code> 即可整包套用；改包内成员，所有引用处自动更新。</p></div>
+          <div class="head-actions">
+            <button class="btn" onclick="openBundleModal()"><svg class="icon"><use href="#i-plus"/></svg>新建技能包</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-body"><div id="skillBundleList" class="bundle-grid"><div class="skeleton-line"></div></div></div>
         </div>
       </section>
 
@@ -582,9 +593,15 @@
         <div class="sess-shell">
           <!-- 左栏：员工列表 -->
           <aside class="sess-pane sess-emps">
-            <div class="sess-pane-head"><h3>会话归属</h3></div>
+            <div class="sess-pane-head">
+              <h3>会话归属</h3>
+              <button class="sess-usage-toggle" id="sessionUsageToggle" onclick="toggleSessionUsage(event)" title="今日真实用量（点击查看明细）" aria-label="今日真实用量">
+                <svg class="icon"><use href="#i-activity"/></svg><b id="sessionUsageBrief"></b>
+              </button>
+            </div>
             <div class="sess-emp-list" id="sessionEmpList"></div>
           </aside>
+          <div class="sess-col-resizer" id="sessEmpResizer" role="separator" aria-orientation="vertical" title="拖动调整「会话归属」栏宽度" aria-label="调整会话归属栏宽度"></div>
           <!-- 中栏：会话列表 -->
           <div class="sess-pane sess-convs">
             <div class="sess-pane-head">
@@ -598,10 +615,13 @@
                 <button class="icon-btn primary-icon" onclick="quickCreateSession()" title="创建新会话（当前归属）" aria-label="创建新会话"><svg class="icon"><use href="#i-plus"/></svg></button>
               </div>
             </div>
+            <div class="sess-task-tabs" id="sessionTaskTabs" role="tablist" aria-label="会话类型">
+              <button class="sess-task-tab active" data-tab="chat" role="tab" aria-selected="true" onclick="selectSessionTaskTab('chat')">对话任务 <span class="sess-task-tab-count" id="tabCountChat">0</span></button>
+              <button class="sess-task-tab" data-tab="auto" role="tab" aria-selected="false" onclick="selectSessionTaskTab('auto')">自动任务 <span class="sess-task-tab-count" id="tabCountAuto">0</span></button>
+            </div>
             <div class="sess-conv-search">
               <div class="search-box"><svg class="icon"><use href="#i-search"/></svg><input id="sessionSearch" placeholder="搜索会话…" autocomplete="off"></div>
             </div>
-            <div class="sess-usage-bar" id="sessionUsageBar"></div>
             <div class="sess-conv-list" id="sessionConvList"></div>
           </div>
           <!-- 右栏：聊天对话框 -->
@@ -634,11 +654,14 @@
                 <div class="chat-toolbar" id="chatToolbar"></div>
                 <div class="chat-input-row">
                   <div class="chat-input-shell" id="chatInputShell">
-                    <textarea id="chatInput" rows="2" placeholder="输入消息…  @ 提及员工，Enter 发送" onkeydown="chatInputKeydown(event)" oninput="mentionOnInput(event)" onblur="mentionOnBlur()" onscroll="mentionReposition()"></textarea>
+                    <div class="chat-attach-preview hidden" id="chatAttachPreview"></div>
+                    <textarea id="chatInput" rows="2" placeholder="输入消息…  @ 提及员工，Enter 发送" onkeydown="chatInputKeydown(event)" oninput="mentionOnInput(event)" onblur="mentionOnBlur()" onscroll="mentionReposition()" onpaste="chatInputPaste(event)"></textarea>
                     <div class="chat-input-actions">
+                      <button class="chat-send-btn" id="chatAttachBtn" onclick="document.getElementById('chatFileInput').click()" title="添加图片（可粘贴/拖入）" aria-label="添加图片"><svg class="icon"><use href="#i-image"/></svg></button>
                       <button class="chat-send-btn" id="chatStopBtn" style="display:none" onclick="chatStop()" title="停止生成" aria-label="停止生成"><svg class="icon"><use href="#i-x"/></svg></button>
                       <button class="chat-send-btn primary" id="chatSendBtn" onclick="chatSend()" title="发送（Enter）" aria-label="发送消息"><svg class="icon"><use href="#i-zap"/></svg></button>
                     </div>
+                    <input type="file" id="chatFileInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onchange="chatFilesChosen(this.files)">
                   </div>
                 </div>
                 <div class="chat-hint" id="chatHint"></div>
@@ -859,6 +882,34 @@
       <div class="head-actions">
         <button class="btn" onclick="closeSkillEditor()">取消</button>
         <button class="btn primary" onclick="submitSkillEditor()"><svg class="icon"><use href="#i-save"/></svg>保存技能</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 技能包编辑弹窗 ===== -->
+<div id="bundleModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeBundleModal()"></div>
+  <div class="modal-card" style="max-width:720px">
+    <div class="modal-head">
+      <span class="modal-head-icon"><svg class="icon"><use href="#i-layers"/></svg></span>
+      <div><h2 id="bundleModalTitle">新建技能包</h2><p id="bundleModalDesc">把常用技能打成一组，分配时用 @包名 整包套用</p></div>
+      <button class="icon-btn" onclick="closeBundleModal()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row-grid">
+        <div class="form-row"><label>包名称 <b>*</b><span>引用时写 @名称，如 @测试质量</span></label><input id="bundleName" placeholder="测试质量" autocomplete="off"></div>
+        <div class="form-row"><label>说明<span>这个包适用于什么场景</span></label><input id="bundleDesc" placeholder="测试工程师开工前加载" autocomplete="off"></div>
+      </div>
+      <div class="form-row"><label>包含技能<span>点击技能挂载/卸载，也可引用其他技能包（@包名）</span></label>
+        <div id="bundleSkills" class="chip-picker bundle-chip-picker"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-foot-hint"><svg class="icon"><use href="#i-info"/></svg> 保存后需重启管理端生效</span>
+      <div class="head-actions">
+        <button class="btn" onclick="closeBundleModal()">取消</button>
+        <button class="btn primary" onclick="submitBundleModal()"><svg class="icon"><use href="#i-save"/></svg>保存技能包</button>
       </div>
     </div>
   </div>
@@ -1152,29 +1203,55 @@
   </div>
 </div>
 
-<!-- ===== 新建自主工作 ===== -->
-<div id="triggerModal" class="modal hidden">
+<!-- ===== 新建/编辑自主工作 ===== -->
+<div id="triggerModal" class="modal hidden trg-modal">
   <div class="modal-backdrop" onclick="closeTriggerModal()"></div>
-  <div class="modal-card">
-    <div class="modal-head">
+  <div class="modal-card trg-card">
+    <div class="modal-head trg-head">
       <span class="modal-head-icon"><svg class="icon"><use href="#i-zap"/></svg></span>
-      <div><h2 id="triggerModalTitle">新建自主工作</h2><p>让员工按间隔自动开工</p></div>
+      <div><h2 id="triggerModalTitle">新建自主工作</h2><p>让员工按设定节奏自动开工，全程可追溯</p></div>
       <button class="icon-btn" onclick="closeTriggerModal()" title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body trg-body">
       <input type="hidden" id="triggerId">
-      <div class="form-row"><label>名称 <b>*</b></label><input id="triggerName" placeholder="例如：每日代码巡检"></div>
-      <div class="form-grid-2">
-        <div class="form-row"><label>执行员工</label><select id="triggerEmployee"><option value="">选择员工</option></select></div>
-        <div class="form-row"><label>触发方式</label><select id="triggerType"><option value="interval">按间隔</option><option value="once">一次性</option></select></div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>1</span>基本信息</div>
+        <div class="form-row"><label>名称 <b>*</b><span>给这条规则起个好认的名字</span></label><input id="triggerName" placeholder="例如：每日代码巡检"></div>
+        <div class="form-grid-2">
+          <div class="form-row"><label>执行员工 <b>*</b></label><select id="triggerEmployee"><option value="">选择员工</option></select></div>
+          <div class="form-row"><label>任务标题 <b>*</b><span>生成任务的标题</span></label><input id="triggerTaskTitle" placeholder="例如：生成今日质量问题报告"></div>
+        </div>
       </div>
-      <div class="form-grid-2">
-        <div class="form-row"><label>间隔（分钟）</label><input id="triggerInterval" type="number" min="1" value="60"></div>
-        <div class="form-row"><label>最大运行次数（0=不限）</label><input id="triggerMaxRuns" type="number" min="0" value="0"></div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>2</span>触发规则</div>
+        <div class="form-grid-2">
+          <div class="form-row"><label>触发方式</label><select id="triggerType" onchange="onTriggerTypeChange()"><option value="interval">按间隔</option><option value="once">一次性</option></select></div>
+          <div class="form-row" id="triggerIntervalRow"><label>间隔（分钟）</label><input id="triggerInterval" type="number" min="1" value="60"></div>
+        </div>
+        <div class="form-row"><label>最大运行次数 <span>0 = 不限</span></label><input id="triggerMaxRuns" type="number" min="0" value="0"></div>
+        <label class="checkbox-row"><input type="checkbox" id="triggerEnabled" checked><span>启用这条规则（关闭后调度器跳过）</span></label>
       </div>
-      <div class="form-row"><label>任务标题 <b>*</b></label><input id="triggerTaskTitle" placeholder="例如：生成今日质量问题报告"></div>
-      <div class="form-row"><label>任务指令（Prompt）</label><textarea id="triggerPrompt" rows="4" placeholder="详细告诉员工这次自动要做什么、产出什么"></textarea></div>
-      <label class="check-line"><input type="checkbox" id="triggerEnabled" checked> 启用</label>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>3</span>模型分配 <span class="trg-sec-note">可留空跟随默认</span></div>
+        <div class="trg-model-grid">
+          <div class="trg-model-card">
+            <div class="trg-model-head"><span class="trg-model-ico run"><svg class="icon"><use href="#i-zap"/></svg></span><div><b>任务运行模型</b><small>调度扫描这次会话使用</small></div></div>
+            <select id="triggerRunModel" class="trg-model-select"><option value="">跟随默认模型</option></select>
+          </div>
+          <div class="trg-model-card">
+            <div class="trg-model-head"><span class="trg-model-ico dispatch"><svg class="icon"><use href="#i-external"/></svg></span><div><b>派生会话模型</b><small>派发出的新任务会话使用</small></div></div>
+            <select id="triggerDispatchModel" class="trg-model-select"><option value="">跟随运行模型</option></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title"><span>4</span>任务指令 <span class="trg-sec-note">告诉员工这次自动做什么</span></div>
+        <div class="form-row"><textarea id="triggerPrompt" rows="5" placeholder="例如：扫描 Redmine，遇到 @piwake 的工单派发给 saul 处理…"></textarea></div>
+      </div>
     </div>
     <div class="modal-foot">
       <span class="modal-foot-hint"><svg class="icon"><use href="#i-shield"/></svg> 保存前自动备份</span>
@@ -1255,6 +1332,7 @@
       <button class="edt" data-edtab="skills" onclick="switchEdTab('skills')">技能</button>
       <button class="edt" data-edtab="permissions" onclick="switchEdTab('permissions')">权限红线</button>
       <button class="edt" data-edtab="tasks" onclick="switchEdTab('tasks')">任务</button>
+      <button class="edt" data-edtab="autonomous" onclick="switchEdTab('autonomous')">自主工作</button>
       <button class="edt" data-edtab="chat" onclick="switchEdTab('chat')">对话</button>
     </div>
     <div class="modal-body emp-detail-body" id="edBody"><div class="skeleton-line"></div></div>
@@ -1288,6 +1366,9 @@
       <div class="form-row">
         <label>导出目录 <b>*</b><span>绝对路径；技能写入 skills/，工作流写入 prompts/</span></label>
         <input id="importDir" placeholder="/Users/lishuai/Downloads/qoderwake-export" autocomplete="off">
+      </div>
+      <div class="form-hint" style="margin:-4px 0 12px;line-height:1.7">
+        导入结果不在单独的「工具」菜单：技能到左侧 <b>技能库</b>（用户级），工作流到 <b>资源管理 → 提示词</b>。导入后在 Pi 里执行 <code>/reload</code> 才会生效。
       </div>
       <div class="head-actions" style="margin-bottom:12px">
         <button class="btn" onclick="scanImport()"><svg class="icon"><use href="#i-search"/></svg>扫描</button>

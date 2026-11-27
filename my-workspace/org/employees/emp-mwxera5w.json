@@ -11,9 +11,9 @@
   },
   "skills": [],
   "permissions": {
-    "filesystem": "read-only",
-    "commands": "deny",
-    "network": "deny",
+    "filesystem": "workspace-write",
+    "commands": "allowlist",
+    "network": "allow",
     "budget": {
       "maxTokensPerTask": 0,
       "maxCostPerDay": 0
@@ -23,5 +23,5 @@
   "systemPrompt": "你是产品经理，负责澄清需求、编写规格与验收清单。",
   "note": "",
   "createdAt": "2026-11-26T10:27:09.175Z",
-  "updatedAt": "2026-11-26T10:27:18.549Z"
+  "updatedAt": "2026-11-27T06:23:22.792Z"
 }

@@ -510,7 +510,8 @@ function usageInfo(u, fx, cnyOverride, labelOverride) {
 // 只清理 Pi Admin 自己生成的三类名字，用户改过的名字保持原样。
 function sessionDisplayLabel(name) {
   const s = String(name || "").trim();
-  const m = s.match(/^(与.+对话|新会话|任务)\s*·\s*\d{1,2}:\d{2}$/);
+  const m = s.match(/^(与.+对话|新会话|任务)\s*·\s*\d{1,2}:\d{2}$/)
+    || s.match(/^(群聊\s*·\s*.+)\s*·\s*\d{1,2}:\d{2}$/);
   return m ? m[1] : (s || "未命名会话");
 }
 function fmtSessionTime(ts) {
@@ -1251,6 +1252,7 @@ let sessionsCache = [];
 let groupsCache = [];                 // 协作群（作为一类会话归属）
 let groupPreviews = {};               // groupId -> { preview, lastTs, count, sopStatus }
 let sessionSelectedEmp = "__all__";   // 左侧筛选：__all__ | __me__ | group:<id> | emp-xxx
+let sessionTaskTab = "chat";          // 会话类型：chat 对话任务 | auto 自动任务（触发器/群唤醒/SOP 派活）
 let sessionActiveOwner = "";          // 当前打开会话的归属（与筛选独立）：__me__ | group:<id> | emp-xxx
 // 群聊状态：host = modal（团队页弹层） | session（会话中心右栏）
 const gcState = { groupId: "", sending: false, host: "modal", lastUserText: "" };
@@ -1277,11 +1279,73 @@ function groupSessions() {
   });
 }
 
+/**
+ * 自动任务判定：优先用后端 origin 标记；旧会话（服务未重启时也没有该字段）
+ * 用会话名 / 首条 prompt 兜底，保证分类立即生效。
+ */
+function isAutoSession(s) {
+  if (!s) return false;
+  const name = String(s.name || "");
+  // 任务会话一律按「是不是触发器那次扫描执行」判定：
+  // 旧数据曾把派发工单、群聊唤醒、SOP 派活都标成 auto，这里统一纠正为对话任务
+  if (/^任务\s*·\s*/.test(name)) return /^任务\s*·\s*Redmine 定时扫描派发/.test(name);
+  return s.origin === "auto";
+}
+
 function sessSessionsForEmp(emp) {
-  if (emp === "__all__") return [...sessionsCache, ...groupSessions()];
-  if (emp === "__me__") return sessionsCache.filter((s) => !s.employeeId);
-  if (emp.startsWith("group:")) return groupSessions().filter((s) => s.groupId === emp.slice(6));
-  return sessionsCache.filter((s) => s.employeeId === emp);
+  // 自动任务单独一类：触发器定时任务、群聊唤醒、SOP 阶段派活都从这里看
+  const sessions = sessionTaskTab === "auto"
+    ? sessionsCache.filter(isAutoSession)
+    : sessionsCache.filter((s) => !isAutoSession(s));
+  if (emp === "__all__") return sessionTaskTab === "auto" ? sessions : [...sessions, ...groupSessions()];
+  // 群归属的 Pi 会话不再重复出现在「我的会话」
+  if (emp === "__me__") return sessions.filter((s) => !s.employeeId && !s.groupId);
+  if (emp.startsWith("group:")) {
+    if (sessionTaskTab === "auto") return [];
+    const gid = emp.slice(6);
+    // 群聊卡片 + 手动新建的群归属会话
+    return [...groupSessions().filter((s) => s.groupId === gid), ...sessions.filter((s) => s.groupId === gid)];
+  }
+  return sessions.filter((s) => s.employeeId === emp);
+}
+
+/** 会话类型 tab 的计数与选中态 */
+function renderSessionTaskTabs() {
+  const chatN = sessionsCache.filter((s) => !isAutoSession(s)).length + groupsCache.length;
+  const autoN = sessionsCache.filter(isAutoSession).length;
+  const $chat = $("#tabCountChat"), $auto = $("#tabCountAuto");
+  if ($chat) $chat.textContent = chatN;
+  if ($auto) $auto.textContent = autoN;
+  for (const btn of $$("#sessionTaskTabs .sess-task-tab")) {
+    const on = btn.dataset.tab === sessionTaskTab;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  }
+  const search = $("#sessionSearch");
+  if (search) search.placeholder = sessionTaskTab === "auto" ? "搜索自动任务…" : "搜索会话…";
+}
+
+/** 切换对话任务 / 自动任务：清掉当前对话，默认打开新分类第一条 */
+function selectSessionTaskTab(tab) {
+  if (tab !== "chat" && tab !== "auto") return;
+  if (sessionTaskTab === tab) return;
+  sessionTaskTab = tab;
+  // 群归属只在对话任务里存在，切到自动任务时回到「全部会话」
+  if (tab === "auto" && sessionSelectedEmp.startsWith("group:")) sessionSelectedEmp = "__all__";
+  sessionActiveOwner = "";
+  closeSessionMenu();
+  if (chatES) { try { chatES.close(); } catch {} chatES = null; }
+  chatFile = null;
+  if (gcState.groupId && gcState.host === "session") closeGroupChat();
+  $("#sessionDetailPanel").classList.add("hidden");
+  $("#sessionChatEmpty").classList.remove("hidden");
+  chatSetRunning(false);
+  renderSessionTaskTabs();
+  renderSessionEmpList();
+  renderSessions();
+  const first = filteredSessionsForEmp(sessionSelectedEmp)[0];
+  if (first?.isGroup) viewGroupSession(first.groupId);
+  else if (first) viewSession(first.file, first.name);
 }
 
 /** 当前归属 + 搜索框过滤后的会话列表（列表渲染与自动选中共用） */
@@ -1315,7 +1379,7 @@ function renderSessionEmpList(revealOwner = false) {
       <span class="sess-emp-count">${count}</span>
     </div>`;
   };
-  let html = item("__all__", "全部会话", "所有员工与我的会话", sessionsCache.length, "");
+  let html = item("__all__", "全部会话", sessionTaskTab === "auto" ? "所有自动任务会话" : "所有员工与我的会话", sessSessionsForEmp("__all__").length, "");
   html += `<div class="sess-emp-divider"></div><div class="sess-emp-label">我</div>`;
   html += item("__me__", "我的会话", "普通 / 非员工会话", sessSessionsForEmp("__me__").length, "me");
   html += `<div class="sess-emp-divider"></div><div class="sess-emp-label">数字员工</div>`;
@@ -1328,15 +1392,17 @@ function renderSessionEmpList(revealOwner = false) {
     </span>`;
     html += item(e.id, e.name || e.id, `${e.role || "员工"} · ${status}`, sessSessionsForEmp(e.id).length, "", ops);
   }
-  html += `<div class="sess-emp-divider"></div><div class="sess-emp-label">协作群</div>`;
-  if (!groupsCache.length) html += `<div style="padding:8px 10px;font-size:11px;color:var(--text-3)">还没有团队，可在「团队 Group」创建</div>`;
-  for (const g of groupsCache) {
-    const gid = `group:${g.id}`;
-    const members = [...new Set([...(g.members || []), g.leader].filter(Boolean))];
-    const ops = `<span class="sess-emp-ops">
-      <button class="icon-btn" title="团队群聊（新窗口）" onclick='event.stopPropagation();openGroupChat(${JSON.stringify(g.id)})'>${icon("external")}</button>
-    </span>`;
-    html += item(gid, g.name || g.id, `${members.length} 名成员 · 群聊`, 1, "group", ops);
+  if (sessionTaskTab !== "auto") {
+    html += `<div class="sess-emp-divider"></div><div class="sess-emp-label">协作群</div>`;
+    if (!groupsCache.length) html += `<div style="padding:8px 10px;font-size:11px;color:var(--text-3)">还没有团队，可在「团队 Group」创建</div>`;
+    for (const g of groupsCache) {
+      const gid = `group:${g.id}`;
+      const members = [...new Set([...(g.members || []), g.leader].filter(Boolean))];
+      const ops = `<span class="sess-emp-ops">
+        <button class="icon-btn" title="团队群聊（新窗口）" onclick='event.stopPropagation();openGroupChat(${JSON.stringify(g.id)})'>${icon("external")}</button>
+      </span>`;
+      html += item(gid, g.name || g.id, `${members.length} 名成员 · 群聊`, sessSessionsForEmp(gid).length, "group", ops);
+    }
   }
   $("#sessionEmpList").innerHTML = html;
   if (revealOwner && sessionActiveOwner) {
@@ -1345,26 +1411,71 @@ function renderSessionEmpList(revealOwner = false) {
   }
 }
 
+/** 左栏「会话归属」标题旁的用量入口：平时只露金额，点击弹完整明细 */
+function renderSessionUsage() {
+  const btn = $("#sessionUsageToggle");
+  if (!btn) return;
+  const stats = overviewData?.stats || {};
+  const brief = $("#sessionUsageBrief");
+  const has = !!stats.todayTokens;
+  btn.classList.toggle("empty", !has);
+  if (brief) brief.textContent = stats.todayCostCny ? fmtCost(stats.todayCostCny) : "";
+  btn.title = has
+    ? `今日真实用量 ${fmtTokens(stats.todayTokens)} tok · ${fmtCost(stats.todayCostCny)}（点击查看明细）`
+    : "暂无今日用量数据";
+}
+
+function sessionUsageDetailHtml() {
+  const stats = overviewData?.stats || {};
+  const fx = activeFx(overviewData?.fx);
+  const hasOverseas = (stats.priceModes || []).some((m) => m === "provider" || m === "catalog");
+  if (!stats.todayTokens) return `<div class="sess-usage-pop-empty">暂无今日用量数据</div>`;
+  return `
+    <div class="sess-usage-pop-row"><span>今日 tokens</span><b title="${esc(fmtTokensFull(stats.todayTokens))}">${esc(fmtTokens(stats.todayTokens))} tok</b></div>
+    <div class="sess-usage-pop-row"><span>今日费用</span><b class="cny">${esc(fmtCost(stats.todayCostCny))}</b></div>
+    <div class="sess-usage-pop-foot">${hasOverseas ? `海外账单汇率 ${fx.usdCny}` : "国内模型原生人民币，无汇率折算"}</div>`;
+}
+
+function closeSessionUsage() {
+  $("#sessionUsagePopover")?.remove();
+}
+
+function toggleSessionUsage(evt) {
+  evt?.stopPropagation();
+  if ($("#sessionUsagePopover")) { closeSessionUsage(); return; }
+  const btn = $("#sessionUsageToggle");
+  if (!btn) return;
+  const pop = document.createElement("div");
+  pop.id = "sessionUsagePopover";
+  pop.className = "sess-usage-popover";
+  pop.innerHTML = `<div class="sess-usage-pop-head">${icon("activity")}今日真实用量</div>${sessionUsageDetailHtml()}`;
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  let left = r.right - w;
+  if (left < 8) left = 8;
+  if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${r.bottom + 8}px`;
+}
+
 function renderSessions() {
   const q = ($("#sessionSearch")?.value || "").toLowerCase().trim();
   const list = filteredSessionsForEmp(sessionSelectedEmp);
   $("#sessionCount").textContent = `${list.length} 个`;
-  $("#sessionConvTitle").textContent = sessionSelectedEmp === "__all__" ? "全部会话"
+  $("#sessionConvTitle").textContent = sessionSelectedEmp === "__all__"
+    ? (sessionTaskTab === "auto" ? "自动任务" : "全部会话")
     : sessionSelectedEmp === "__me__" ? "我的会话"
     : sessionSelectedEmp.startsWith("group:") ? (groupsCache.find((g) => g.id === sessionSelectedEmp.slice(6))?.name || "群聊")
     : (employeesCache.find((e) => e.id === sessionSelectedEmp)?.name || "员工会话");
-  const stats = overviewData?.stats || {};
-  const fxNow = activeFx(overviewData?.fx);
-  const hasOverseas = (stats.priceModes || []).some((m) => m === "provider" || m === "catalog");
-  const usageBar = $("#sessionUsageBar");
-  if (usageBar) {
-    usageBar.innerHTML = stats.todayTokens
-      ? `${icon("activity")}<span title="${fmtTokensFull(stats.todayTokens)} tokens">今日真实用量 ${fmtTokens(stats.todayTokens)} tok</span><b>${fmtCost(stats.todayCostCny)}</b><em>${hasOverseas ? `海外账单汇率 ${fxNow.usdCny}` : "国内模型原生人民币"}</em>`
-      : "";
-  }
+  renderSessionUsage();
   const box = $("#sessionConvList");
   const hasAny = sessionsCache.length + groupsCache.length;
   if (!list.length) {
+    if (sessionTaskTab === "auto") {
+      box.innerHTML = emptyState("clock", "还没有自动任务", "触发器定时任务、群聊 @ 唤醒、SOP 派活的会话会出现在这里；可在「自主工作」或任务看板发起。", "");
+      return;
+    }
     box.innerHTML = emptyState("clock", hasAny ? "没有匹配的会话" : "还没有会话记录",
       hasAny ? `没有找到与「${esc(q)}」匹配的会话。` : "还没有会话。点右上角「新开会话」创建一条，或在 Pi 里开始对话后会话会自动保存在 <code>~/.pi/agent/sessions/</code>。",
       hasAny ? "" : `<button class="btn primary" onclick="quickCreateSession()">${icon("plus")}新开会话</button>`);
@@ -1449,7 +1560,7 @@ function toggleSessionMenu(evt, btn, file, id, name) {
     const act = item.dataset.act;
     if (act === "chat") viewSession(menu.dataset.file, menu.dataset.name);
     else if (act === "export") exportSession(menu.dataset.file);
-    else if (act === "delete") deleteSession(menu.dataset.file, menu.dataset.id);
+    else if (act === "delete") deleteSession(menu.dataset.file, menu.dataset.id, menu.dataset.name);
   });
   document.body.appendChild(menu);
   const r = btn.getBoundingClientRect();
@@ -1494,6 +1605,7 @@ async function loadSessions() {
     if (ov.fx) adminFx = activeFx(ov.fx);
   }
   await loadGroupPreviews();
+  renderSessionTaskTabs();
   renderSessionEmpList();
   renderSessions();
 }
@@ -1600,16 +1712,36 @@ function chatScroll() {
   if (box) box.scrollTop = box.scrollHeight;
 }
 
-function chatBubble(role, text, meta = "", rich = false) {
+function chatBubble(role, text, meta = "", rich = false, images = []) {
   const wrap = document.createElement("div");
-  wrap.className = `chat-msg ${role}`;
-  const label = role === "user" ? "你" : (role === "tool" ? "工具" : chatAgentName);
-  const avatar = role === "user" ? "我" : (role === "tool" ? "⚙" : (chatAgentName || "P").slice(0, 1).toUpperCase());
+  const box = $("#chatMessages");
+  // 自动派发的任务卡首条消息标成「任务指令」，不要显示成「你/我」发的消息
+  const isTaskCard = role === "user" && box && !box.querySelector(".chat-msg")
+    && /^#\s*任务卡[：:]/.test(String(text || ""));
+  wrap.className = `chat-msg ${role}${isTaskCard ? " task-card-msg" : ""}`;
+  const label = isTaskCard ? "任务指令" : role === "user" ? "你" : (role === "tool" ? "工具" : chatAgentName);
+  const avatar = isTaskCard ? "务" : role === "user" ? "我" : (role === "tool" ? "⚙" : (chatAgentName || "P").slice(0, 1).toUpperCase());
   wrap.innerHTML = `<div class="chat-avatar ${role}">${esc(avatar)}</div>
     <div class="chat-msg-body"><div class="chat-msg-head"><b>${esc(label)}</b>${meta ? `<span class="chat-msg-meta">${esc(meta)}</span>` : ""}</div>
     <div class="chat-msg-text"></div></div>`;
   const el = wrap.querySelector(".chat-msg-text");
   if (rich) el.innerHTML = richMessage(text); else el.textContent = text;
+  if (images?.length) {
+    const gallery = document.createElement("div");
+    gallery.className = "chat-msg-images";
+    for (const src of images) {
+      const a = document.createElement("a");
+      a.href = src;
+      a.target = "_blank";
+      a.rel = "noopener";
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = "图片附件";
+      a.appendChild(img);
+      gallery.appendChild(a);
+    }
+    el.appendChild(gallery);
+  }
   $("#chatMessages").appendChild(wrap);
   chatScroll();
   return wrap;
@@ -1774,6 +1906,9 @@ async function viewSession(file, name) {
     chatScroll();
     return;
   }
+  // 切换会话时清掉上一条会话未发送的图片，避免发错对象
+  chatPendingImages = [];
+  chatRenderAttachPreview();
 
   // 高亮选中的会话卡片；显示聊天栏、隐藏空状态
   $$(".sess-conv-item").forEach((el) => el.classList.toggle("active", el.dataset.file === file));
@@ -1819,11 +1954,14 @@ async function viewSession(file, name) {
     $("#chatMessages").innerHTML = "";
     // model_change / compaction 等系统事件也会出现在 entries 里，不能据此判断「有消息」。
     // 否则清空后一条都不渲染，聊天区就是一片空白。
+    // toolResult 也要保留：它是工具执行的输出，属于「过程块」，不该被当正文逐条刷屏。
     const visible = (d.entries || []).filter((e) =>
-      ["user", "assistant"].includes(e.role) && (e.text || e.blocks?.length));
+      ["user", "assistant", "toolResult"].includes(e.role) && (e.text || e.blocks?.length));
     if (visible.length) {
       // 一轮对话里可能有几十条「只有 thinking / toolCall」的 assistant 消息。
       // 先把过程块攒起来，遇到下一条正文（或用户消息）时合并成一条「查看 N 个步骤」。
+      // 注：Pi 的任务会话里，工具结果常作为独立 toolResult 消息出现（role=toolResult、text 是输出），
+      // 若按正文处理就会每条都 flush，导致截屏里那样一串「查看 1 个步骤」。
       let pendingBlocks = [];
       const flushProcess = () => {
         if (!pendingBlocks.length) return;
@@ -1839,7 +1977,12 @@ async function viewSession(file, name) {
         chatHistoryCount++;
         if (e.role === "user") {
           flushProcess();
-          chatBubble("user", e.text);
+          chatBubble("user", e.text, "", false, e.images || []);
+          continue;
+        }
+        if (e.role === "toolResult") {
+          // 工具结果归入过程块（折叠展示），不再单独成一条正文气泡
+          pendingBlocks.push({ kind: "toolResult", name: e.toolName || "工具", text: e.text || "" });
           continue;
         }
         if (e.blocks?.length) pendingBlocks.push(...e.blocks);
@@ -1875,7 +2018,7 @@ async function viewSession(file, name) {
     chatES.addEventListener("user_echo", (ev) => {
       const d = JSON.parse(ev.data);
       $$("#chatMessages .chat-welcome, #chatMessages .chat-intro").forEach((el) => el.remove());
-      chatBubble("user", d.text);
+      chatBubble("user", d.text, "", false, d.images || []);
     });
     chatES.addEventListener("run_start", () => {
       chatStreamText = "";
@@ -2020,22 +2163,75 @@ async function chatChangeModel() {
   } catch (e) { toast(e.message, "err"); restore(); }
 }
 
+// ---------- 输入框图片附件 ----------
+let chatPendingImages = []; // [{ dataUrl, mimeType }]
+
+function chatRenderAttachPreview() {
+  const box = $("#chatAttachPreview");
+  if (!box) return;
+  box.innerHTML = chatPendingImages.map((im, i) =>
+    `<span class="chat-attach-thumb" title="${esc(im.name || "图片")}"><img src="${im.dataUrl}" alt="附件"><button type="button" onclick="chatRemoveImage(${i})" title="移除">×</button></span>`
+  ).join("");
+  box.classList.toggle("hidden", !chatPendingImages.length);
+}
+function chatRemoveImage(i) {
+  chatPendingImages.splice(i, 1);
+  chatRenderAttachPreview();
+}
+async function chatAddFiles(files) {
+  const list = [...(files || [])].filter((f) => /^image\//.test(f.type));
+  if (!list.length) return;
+  const room = 6 - chatPendingImages.length;
+  if (room <= 0) { toast("最多添加 6 张图片", "err"); return; }
+  for (const f of list.slice(0, room)) {
+    if (f.size > 8 * 1024 * 1024) { toast(`${f.name} 超过 8MB，已跳过`, "err"); continue; }
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(f);
+      });
+      chatPendingImages.push({ dataUrl, mimeType: f.type, name: f.name });
+    } catch { toast(`${f.name} 读取失败`, "err"); }
+  }
+  if (list.length > room) toast(`最多 6 张，已忽略多余图片`, "err");
+  chatRenderAttachPreview();
+  $("#chatInput")?.focus();
+}
+function chatFilesChosen(input) {
+  chatAddFiles(input.files);
+  input.value = "";
+}
+function chatInputPaste(e) {
+  const files = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type));
+  if (!files.length) return;
+  e.preventDefault();
+  chatAddFiles(files);
+}
+
 async function chatSend() {
   if (!chatFile) return;
   const input = $("#chatInput");
   const message = input.value.trim();
-  if (!message) return;
+  if (!message && !chatPendingImages.length) return;
+  const images = chatPendingImages.map((im) => ({
+    mimeType: im.mimeType,
+    data: String(im.dataUrl).replace(/^data:image\/[\w+-]+;base64,/i, ""),
+  }));
   input.value = "";
+  chatPendingImages = [];
+  chatRenderAttachPreview();
   $("#chatHint").textContent = "";
   try {
     await api("/api/chat/send", {
       method: "POST",
-      body: JSON.stringify({ unlocked: true, file: chatFile, message, ...(chatStreaming ? { streamingBehavior: "steer" } : {}) }),
+      body: JSON.stringify({ unlocked: true, file: chatFile, message, images, ...(chatStreaming ? { streamingBehavior: "steer" } : {}) }),
     });
     chatSetRunning(true);
   } catch (e) {
     toast(e.message, "err");
-    input.value = message; // 恢复
+    input.value = message; // 恢复文字；图片不恢复，避免误重发
   }
 }
 
@@ -2115,18 +2311,30 @@ function closeSessionDetail() {
 
 // ---------- 新开会话：直接创建并在右侧开聊 ----------
 async function quickCreateSession() {
+  // 手建的会话都是对话任务；从自动任务页点「+」时自动切回对话任务
+  if (sessionTaskTab === "auto") {
+    sessionTaskTab = "chat";
+    renderSessionTaskTabs();
+    renderSessionEmpList();
+  }
   let cwd = overviewData?.workspace || "";
   const emp = employeesCache.find((e) => e.id === sessionSelectedEmp);
+  // 当前归属是群组时，新建的 Pi 会话也要挂到该群组，不能掉进「我的会话」
+  const ownerKey = sessionSelectedEmp.startsWith("group:") ? sessionSelectedEmp : (sessionActiveOwner || "");
+  const groupId = ownerKey.startsWith("group:") ? ownerKey.slice(6) : "";
+  const group = groupId ? groupsCache.find((g) => g.id === groupId) : null;
   const d = new Date();
   const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const name = emp?.workspace
-    ? `与${emp.name || emp.id}对话 · ${hhmm}`
-    : `新会话 · ${hhmm}`;
+  const name = group
+    ? `群聊 · ${group.name || groupId} · ${hhmm}`
+    : emp?.workspace
+      ? `与${emp.name || emp.id}对话 · ${hhmm}`
+      : `新会话 · ${hhmm}`;
   if (emp?.workspace) cwd = `${cwd.replace(/\/$/, "")}/${emp.workspace.replace(/^\//, "")}`;
   try {
     const r = await api("/api/session/quick-create", {
       method: "POST",
-      body: JSON.stringify({ unlocked: true, cwd, name }),
+      body: JSON.stringify({ unlocked: true, cwd, name, groupId }),
     });
     await loadSessions();
     await viewSession(r.file, r.name);
@@ -2180,11 +2388,12 @@ function exportSession(file) {
   toast("已开始下载", "ok");
 }
 
-async function deleteSession(file, id) {
+async function deleteSession(file, id, name) {
+  const label = (name && String(name).trim()) ? String(name) : `${String(id || "").slice(0, 8)}…`;
   if (!(await appConfirm({
     title: "删除会话", subtitle: "会话移除后可在备份中找回",
-    message: `确定删除会话「${id.slice(0, 8)}…」吗？`,
-    detail: "原文件会先备份到 admin/.backups/，删除后界面不再显示。",
+    message: `确定删除会话「${label}」吗？`,
+    detail: "原文件会先备份到 admin/.backups/，然后彻底删除。",
     okText: "确认删除", icon: "trash",
   }))) return;
   try {
@@ -2572,6 +2781,87 @@ async function loadOrgOverview() {
     renderOrgChart(orgData);
     renderMiniLists(orgData);
     fillOrgSelects(orgData);
+    await loadSkillBundles();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ---------- 技能包 ----------
+let skillBundlesCache = [];
+async function loadSkillBundles() {
+  try {
+    skillBundlesCache = await api("/api/org/skill-bundles");
+  } catch (e) { skillBundlesCache = []; }
+  clearInheritOptionsCache();
+  const box = $("#skillBundleList");
+  if (!box) return;
+  if (!skillBundlesCache.length) {
+    box.innerHTML = `<div class="board-empty">还没有技能包。点右上角「新建技能包」把常用技能打成一组，之后分配时选 @包名 即可整包套用。</div>`;
+    return;
+  }
+  box.innerHTML = skillBundlesCache.map((b) => {
+    const skills = b.skills || [];
+    return `<div class="bundle-card">
+      <div class="bundle-card-head">
+        <span class="bundle-icon">${icon("layers")}</span>
+        <div class="bundle-card-title"><b>${esc(b.name)}</b><code>@${esc(b.name)}</code></div>
+        <div class="row-actions">
+          <button class="icon-btn" title="编辑" onclick="openBundleModal('${esc(b.id)}')">${icon("edit")}</button>
+          <button class="icon-btn" title="删除" onclick="deleteBundle('${esc(b.id)}','${esc(b.name)}')">${icon("trash")}</button>
+        </div>
+      </div>
+      ${b.description ? `<p class="bundle-desc">${esc(b.description)}</p>` : ""}
+      <div class="bundle-chips">${skills.length
+        ? skills.map((s) => `<span class="bundle-skill-chip">${esc(s)}</span>`).join("")
+        : `<span class="bundle-empty">空包，点编辑添加技能</span>`}</div>
+      <div class="bundle-foot"><span class="badge">${skills.length} 项技能</span></div>
+    </div>`;
+  }).join("");
+}
+function openBundleModal(id = "") {
+  const b = skillBundlesCache.find((x) => x.id === id) || {};
+  $("#bundleModalTitle").textContent = id ? "编辑技能包" : "新建技能包";
+  $("#bundleName").value = b.name || "";
+  $("#bundleName").disabled = !!id;
+  $("#bundleDesc").value = b.description || "";
+  $("#bundleModal").dataset.editId = id;
+  $("#bundleModal").classList.remove("hidden");
+  renderChipPicker("#bundleSkills", b.skills || [], "skills");
+}
+function closeBundleModal() { $("#bundleModal").classList.add("hidden"); }
+async function submitBundleModal() {
+  const name = $("#bundleName").value.trim();
+  if (!name) { toast("请输入包名称", "err"); return; }
+  const editId = $("#bundleModal").dataset.editId || "";
+  const other = skillBundlesCache.find((x) => x.name === name && x.id !== editId);
+  if (other) { toast("该包名称已存在", "err"); return; }
+  const bundle = {
+    id: editId || `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    description: $("#bundleDesc").value.trim(),
+    skills: pickedChips("#bundleSkills"),
+  };
+  const next = editId ? skillBundlesCache.map((x) => x.id === editId ? bundle : x) : [...skillBundlesCache, bundle];
+  try {
+    await api("/api/org/skill-bundles", { method: "POST", body: JSON.stringify({ unlocked: true, bundles: next }) });
+    closeBundleModal();
+    clearInheritOptionsCache();
+    toast(`技能包「${name}」已保存，重启管理端后生效`, "ok");
+    await loadSkillBundles();
+  } catch (e) { toast(e.message, "err"); }
+}
+async function deleteBundle(id, name) {
+  if (!(await appConfirm({
+    title: "删除技能包", subtitle: `将从 ${name} 的全部引用处消失`,
+    message: `确定删除技能包「${name}」吗？`,
+    detail: "删除后，部门/团队/员工配置里的 @包名 会被忽略，但技能本身不会删除。",
+    tone: "warn", okText: "删除",
+  }))) return;
+  const next = skillBundlesCache.filter((x) => x.id !== id);
+  try {
+    await api("/api/org/skill-bundles", { method: "POST", body: JSON.stringify({ unlocked: true, bundles: next }) });
+    clearInheritOptionsCache();
+    toast(`技能包「${name}」已删除，重启管理端后生效`, "ok");
+    await loadSkillBundles();
   } catch (e) { toast(e.message, "err"); }
 }
 
@@ -3045,14 +3335,22 @@ async function loadInheritOptions() {
     const resources = await api("/api/resources");
     skills = resources.filter((r) => r.type === "skill").map((r) => r.name || r.pattern || "").filter(Boolean);
   } catch {}
+  // 技能包以 @包名 形式作为可选项，排在技能列表前面
+  let bundles = [];
+  try {
+    const data = await api("/api/org/skill-bundles");
+    bundles = (Array.isArray(data) ? data : []).map((b) => `@${b.name}`).filter(Boolean);
+  } catch {}
   let workflows = [];
   try {
     const sops = await api("/api/org/sops");
     workflows = (Array.isArray(sops) ? sops : []).map((s) => s.name || s.id).filter(Boolean);
   } catch {}
-  inheritOptionsCache = { skills: [...new Set(skills)], workflows: [...new Set(workflows)] };
+  inheritOptionsCache = { skills: [...new Set([...bundles, ...skills])], workflows: [...new Set(workflows)] };
   return inheritOptionsCache;
 }
+/** 清除继承选择器缓存（技能包变更后调用） */
+function clearInheritOptionsCache() { inheritOptionsCache = null; }
 /** 渲染一个 chip 选择器：点击切换选中，选中项写入 hidden 态（存到容器 dataset） */
 async function renderChipPicker(containerSel, selected, kind) {
   const box = $(containerSel);
@@ -3173,6 +3471,17 @@ async function loadCompany() {
 }
 
 // ---------- 组织事件流（实时） ----------
+// 后台任务新建会话时，会话中心列表也要跟着刷新；多个事件合并成一次，避免重复拉取。
+// loadSessions() 只更新缓存与列表 DOM，不碰当前打开的会话/chatES，因此不会打断正在看的对话。
+let sessRefreshTimer = null;
+function scheduleSessionListRefresh() {
+  if (sessRefreshTimer) clearTimeout(sessRefreshTimer);
+  sessRefreshTimer = setTimeout(() => {
+    sessRefreshTimer = null;
+    if ($("#view-sessions")?.classList.contains("active")) loadSessions().catch(() => {});
+  }, 350);
+}
+
 function connectOrgEvents() {
   if (orgES) return;
   try {
@@ -3183,6 +3492,7 @@ function connectOrgEvents() {
       const active = $(".view.active")?.id;
       if (active === "view-tasks") loadTasks();
       if (active === "view-collab") loadCollab();
+      if (active === "view-sessions") scheduleSessionListRefresh();
       if (d.type === "task_done" || d.type === "task_failed") toast(d.note || "任务有更新", d.type === "task_done" ? "ok" : "err");
     };
     ["task_created","task_assigned","task_status","task_done","task_failed","handoff","trigger_fired","approval","message"].forEach((ev) => orgES.addEventListener(ev, relabel));
@@ -3251,7 +3561,46 @@ function switchEdTab(tab) {
   else if (tab === "skills") renderEdSkills();
   else if (tab === "permissions") renderEdPermissions();
   else if (tab === "tasks") renderEdTasks();
+  else if (tab === "autonomous") renderEdAutonomous();
   else if (tab === "chat") renderEdChat();
+}
+
+/** 员工工作台里的自主工作：只列该员工的定时规则，可直接启停 / 立即运行 / 编辑 / 删除 */
+async function renderEdAutonomous() {
+  const emp = currentEdEmployee;
+  if (!emp) return;
+  await loadCompany();
+  const mine = (companyData?.triggers || []).filter((t) => t.employeeId === emp.id);
+  const enabledN = mine.filter((t) => t.enabled).length;
+  let html = `<div class="notice small"><span class="notice-icon">${icon("zap")}</span><div><strong>${esc(emp.name)} 的自主工作</strong><p>这里只显示该员工的定时规则；调度器每 30 秒扫描一次，服务需保持运行。改动会即时同步到「自主工作」页。</p></div></div>`;
+  html += `<div class="ed-trigger-head"><h3 class="ed-section-title" style="margin:0">定时任务（${mine.length}）· ${enabledN} 启用</h3><button class="btn btn-sm primary" onclick='openTriggerModal("",${JSON.stringify(emp.id)})'>${icon("plus")}新建自主工作</button></div>`;
+  html += mine.length ? mine.map((t) => {
+    const meta = [
+      t.type === "interval" ? `每 ${t.intervalMin} 分钟` : t.type === "once" ? "一次性" : esc(t.cron || "自定义"),
+      `已运行 ${t.runCount || 0}${t.maxRuns ? "/" + t.maxRuns : ""} 次`,
+      `上次 ${t.lastRunAt ? esc(String(t.lastRunAt).slice(5, 16).replace("T", " ")) : "从未"}`,
+    ].join(" · ");
+    const prompt = String(t.prompt || "").replace(/\s+/g, " ").trim();
+    const id = JSON.stringify(t.id);
+    const modelTag = (t.model || t.dispatchModel)
+      ? `<div class="trg-model-tags">${t.model ? `<span class="trg-tag run" title="任务运行模型">${icon("zap")}${esc(t.model.split("|").pop())}</span>` : ""}${t.dispatchModel ? `<span class="trg-tag dispatch" title="派生会话模型">${icon("external")}${esc(t.dispatchModel.split("|").pop())}</span>` : ""}</div>`
+      : "";
+    return `<div class="trigger-item ed-trigger-item">
+      <div class="trigger-info">
+        <h4>${icon("zap")} ${esc(t.name)}</h4>
+        <div class="t-meta">${meta}</div>
+        ${modelTag}
+        ${prompt ? `<div class="ed-trigger-prompt" title="${esc(prompt)}">${esc(prompt.slice(0, 110))}${prompt.length > 110 ? "…" : ""}</div>` : ""}
+      </div>
+      <label class="switch" title="${t.enabled ? "已启用" : "已停用"}"><input type="checkbox" ${t.enabled ? "checked" : ""} onchange='toggleTrigger(${id},this.checked)'><span class="slider"></span></label>
+      <div class="trigger-actions">
+        <button class="btn btn-sm" onclick='fireTrigger(${id})' title="立即派发一次任务">${icon("zap")}立即运行</button>
+        <button class="btn btn-sm" onclick='openTriggerModal(${id})'>${icon("sliders")}编辑</button>
+        <button class="btn btn-sm danger" onclick='deleteTrigger(${id})' title="删除规则">${icon("trash")}</button>
+      </div>
+    </div>`;
+  }).join("") : `<div class="board-empty">还没有自主工作。把对话中验证过的稳定任务固化成定时规则，员工会自动开工。</div>`;
+  $("#edBody").innerHTML = html;
 }
 
 function renderEdOverview() {
@@ -3319,10 +3668,15 @@ async function renderEdSkills() {
   const own = emp.skills || [];
   const allSkills = new Set([...inherited, ...teamSkills, ...own]);
 
-  let html = `<div class="notice small"><span class="notice-icon">${icon("info")}</span><div><strong>技能继承</strong><p>员工自动继承所属部门的技能；在团队群聊/SOP 场景还会叠加团队专属技能。个人技能只需设置额外的部分，重复会自动去重。</p></div></div>`;
+  let html = `<div class="notice small"><span class="notice-icon">${icon("info")}</span><div><strong>技能继承</strong><p>员工自动继承所属部门的技能；部门/团队/个人配置里可用 <code>@包名</code> 整包套用，展开后重复自动去重。在群聊/SOP 场景还会叠加团队专属技能。</p></div></div>`;
 
-  // 继承层（只读）
+  // 继承层（只读）——展示包引用来源
+  const deptRefs = (resolved?.inheritedRefs || []).filter((s) => String(s).startsWith("@"));
+  const ownRefs = (resolved?.ownRefs || []).filter((s) => String(s).startsWith("@"));
   html += `<h3 class="ed-section-title" style="margin-top:18px">继承的技能（无需单独配置）</h3>`;
+  if (deptRefs.length || ownRefs.length) {
+    html += `<div class="ed-ref-line">技能包引用：${[...deptRefs, ...ownRefs].map((r) => `<code class="bundle-ref">${esc(r)}</code>`).join(" ")}（已展开为下方技能）</div>`;
+  }
   const inheritedHtml = [
     ...inherited.map((s) => `<span class="skill-chip inherited" title="继承自部门：${esc(resolved?.departmentName || "")}">${icon("building")}${esc(s)}<small>部门</small></span>`),
     ...teamSkills.map((s) => `<span class="skill-chip inherited" title="继承自团队">${icon("users")}${esc(s)}<small>团队</small></span>`),
@@ -4143,36 +4497,79 @@ async function loadTriggers() {
   const triggers = companyData.triggers || [];
   $("#triggerCount").textContent = `${triggers.filter((t) => t.enabled).length} 启用 / ${triggers.length}`;
   const emps = companyData.employees || [];
-  $("#triggerList").innerHTML = triggers.length ? triggers.map((t) => `<div class="trigger-item"><div class="trigger-info"><h4>${icon("zap")} ${esc(t.name)}</h4><div class="t-meta">员工 ${esc(empName(t.employeeId))} · ${t.type === "interval" ? `每 ${t.intervalMin} 分钟` : t.type === "once" ? "一次性" : esc(t.cron)} · 已运行 ${t.runCount || 0}${t.maxRuns ? "/" + t.maxRuns : ""} 次 · 上次 ${t.lastRunAt ? esc(t.lastRunAt.slice(5, 16).replace("T", " ")) : "从未"}</div></div><label class="switch"><input type="checkbox" ${t.enabled ? "checked" : ""} onchange="toggleTrigger('${esc(t.id)}',this.checked)"><span class="slider"></span></label><div class="trigger-actions"><button class="btn btn-sm" onclick="fireTrigger('${esc(t.id)}')">${icon("zap")}立即运行</button><button class="btn btn-sm" onclick="openTriggerModal('${esc(t.id)}')">${icon("sliders")}编辑</button><button class="btn btn-sm danger" onclick="deleteTrigger('${esc(t.id)}')">${icon("trash")}</button></div></div>`).join("") : `<div class="empty-state"><div class="empty-illustration">${icon("zap")}</div><h3>还没有自主工作</h3><p>把验证过的稳定任务设为定时自动开工</p><button class="btn primary" onclick="openTriggerModal()">${icon("plus")}新建自主工作</button></div>`;
+  $("#triggerList").innerHTML = triggers.length ? triggers.map((t) => {
+    const modelTag = (t.model || t.dispatchModel)
+      ? `<div class="trg-model-tags">${t.model ? `<span class="trg-tag run" title="任务运行模型">${icon("zap")}${esc(t.model.split("|").pop())}</span>` : ""}${t.dispatchModel ? `<span class="trg-tag dispatch" title="派生会话模型">${icon("external")}${esc(t.dispatchModel.split("|").pop())}</span>` : ""}</div>`
+      : "";
+    return `<div class="trigger-item"><div class="trigger-info"><h4>${icon("zap")} ${esc(t.name)}</h4><div class="t-meta">员工 ${esc(empName(t.employeeId))} · ${t.type === "interval" ? `每 ${t.intervalMin} 分钟` : t.type === "once" ? "一次性" : esc(t.cron)} · 已运行 ${t.runCount || 0}${t.maxRuns ? "/" + t.maxRuns : ""} 次 · 上次 ${t.lastRunAt ? esc(t.lastRunAt.slice(5, 16).replace("T", " ")) : "从未"}</div>${modelTag}</div><label class="switch"><input type="checkbox" ${t.enabled ? "checked" : ""} onchange="toggleTrigger('${esc(t.id)}',this.checked)"><span class="slider"></span></label><div class="trigger-actions"><button class="btn btn-sm" onclick="fireTrigger('${esc(t.id)}')">${icon("zap")}立即运行</button><button class="btn btn-sm" onclick="openTriggerModal('${esc(t.id)}')">${icon("sliders")}编辑</button><button class="btn btn-sm danger" onclick="deleteTrigger('${esc(t.id)}')">${icon("trash")}</button></div></div>`;
+  }).join("") : `<div class="empty-state"><div class="empty-illustration">${icon("zap")}</div><h3>还没有自主工作</h3><p>把验证过的稳定任务设为定时自动开工</p><button class="btn primary" onclick="openTriggerModal()">${icon("plus")}新建自主工作</button></div>`;
 }
-function openTriggerModal(id = "") {
+/** 触发器变更后同步刷新「自主工作」页与员工工作台（若正打开该 tab） */
+function refreshTriggerViews() {
+  loadTriggers().catch(() => {});
+  const modal = $("#empDetailModal");
+  if (modal && !modal.classList.contains("hidden") && currentEdEmployee && currentEdTab === "autonomous") {
+    renderEdAutonomous().catch(() => {});
+  }
+}
+
+let triggerModelOptions = null;
+async function loadTriggerModelOptions() {
+  if (triggerModelOptions) return triggerModelOptions;
+  try {
+    const data = await api("/api/models/configured");
+    triggerModelOptions = (data.providers || []).map((p) =>
+      `<optgroup label="${esc(p.label)}">${(p.models || []).map((m) =>
+        `<option value="${esc(p.id)}|${esc(m.id)}">${esc(m.name || m.id)} · ${esc(p.id)}</option>`).join("")}</optgroup>`).join("");
+  } catch (e) { triggerModelOptions = ""; }
+  return triggerModelOptions;
+}
+function onTriggerTypeChange() {
+  const once = $("#triggerType")?.value === "once";
+  const row = $("#triggerIntervalRow");
+  if (row) row.style.display = once ? "none" : "";
+}
+async function openTriggerModal(id = "", employeeIdHint = "") {
   const t = (companyData?.triggers || []).find((x) => x.id === id);
   $("#triggerId").value = t?.id || "";
   $("#triggerModalTitle").textContent = t ? "编辑自主工作" : "新建自主工作";
   $("#triggerName").value = t?.name || "";
   $("#triggerEmployee").innerHTML = `<option value="">选择员工</option>` + (companyData?.employees || []).map((e) => `<option value="${esc(e.id)}" ${t?.employeeId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("");
+  // 从员工工作台新建时预选当前员工，省得再选一次
+  if (!t && employeeIdHint) $("#triggerEmployee").value = employeeIdHint;
   $("#triggerType").value = t?.type || "interval";
+  onTriggerTypeChange();
   $("#triggerInterval").value = t?.intervalMin || 60;
   $("#triggerMaxRuns").value = t?.maxRuns || 0;
   $("#triggerTaskTitle").value = t?.taskTitle || "";
   $("#triggerPrompt").value = t?.prompt || "";
   $("#triggerEnabled").checked = t ? t.enabled : true;
   $("#triggerModal").classList.remove("hidden");
+  // 模型下拉：两个选择器共享同一份已配置模型列表；先弹窗再异步填充，避免等待网络
+  const model = t?.model || "", dispatchModel = t?.dispatchModel || "";
+  const opts = await loadTriggerModelOptions();
+  // 弹窗可能在等待期间被关闭或切换到别的记录，校验当前编辑的仍是同一条
+  if ($("#triggerModal").classList.contains("hidden") || $("#triggerId").value !== (t?.id || "")) return;
+  const runSel = $("#triggerRunModel"), dispatchSel = $("#triggerDispatchModel");
+  if (runSel) runSel.innerHTML = `<option value="">跟随全局默认模型</option>${opts}`;
+  if (dispatchSel) dispatchSel.innerHTML = `<option value="">跟随运行模型</option>${opts}`;
+  if (runSel) runSel.value = model;
+  if (dispatchSel) dispatchSel.value = dispatchModel;
 }
 function closeTriggerModal() { $("#triggerModal").classList.add("hidden"); }
 async function submitTrigger() {
-  const payload = { unlocked: true, id: $("#triggerId").value || undefined, name: $("#triggerName").value.trim(), employeeId: $("#triggerEmployee").value, type: $("#triggerType").value, intervalMin: Number($("#triggerInterval").value), maxRuns: Number($("#triggerMaxRuns").value), taskTitle: $("#triggerTaskTitle").value.trim(), prompt: $("#triggerPrompt").value, enabled: $("#triggerEnabled").checked };
+  const payload = { unlocked: true, id: $("#triggerId").value || undefined, name: $("#triggerName").value.trim(), employeeId: $("#triggerEmployee").value, type: $("#triggerType").value, intervalMin: Number($("#triggerInterval").value), maxRuns: Number($("#triggerMaxRuns").value), taskTitle: $("#triggerTaskTitle").value.trim(), prompt: $("#triggerPrompt").value, enabled: $("#triggerEnabled").checked, model: $("#triggerRunModel")?.value || "", dispatchModel: $("#triggerDispatchModel")?.value || "" };
   if (!payload.name || !payload.taskTitle) { toast("请填写名称和任务标题", "err"); return; }
-  try { await api("/api/org/triggers", { method: "POST", body: JSON.stringify(payload) }); toast("自主工作已保存", "ok"); closeTriggerModal(); loadTriggers(); }
+  try { await api("/api/org/triggers", { method: "POST", body: JSON.stringify(payload) }); toast("自主工作已保存", "ok"); closeTriggerModal(); refreshTriggerViews(); }
   catch (e) { toast(e.message, "err"); }
 }
 async function toggleTrigger(id, enabled) {
   const t = (companyData?.triggers || []).find((x) => x.id === id); if (!t) return;
-  try { await api("/api/org/triggers", { method: "POST", body: JSON.stringify({ unlocked: true, ...t, enabled }) }); toast(enabled ? "已启用" : "已停用", "ok"); loadTriggers(); }
-  catch (e) { toast(e.message, "err"); loadTriggers(); }
+  try { await api("/api/org/triggers", { method: "POST", body: JSON.stringify({ unlocked: true, ...t, enabled }) }); toast(enabled ? "已启用" : "已停用", "ok"); refreshTriggerViews(); }
+  catch (e) { toast(e.message, "err"); refreshTriggerViews(); }
 }
 async function fireTrigger(id) {
-  try { const r = await api(`/api/org/triggers/${encodeURIComponent(id)}/fire`, { method: "POST", body: JSON.stringify({ unlocked: true }) }); toast(`已触发任务 ${r.taskId}`, "ok"); connectOrgEvents(); loadTriggers(); }
+  try { const r = await api(`/api/org/triggers/${encodeURIComponent(id)}/fire`, { method: "POST", body: JSON.stringify({ unlocked: true }) }); toast(`已触发任务 ${r.taskId}`, "ok"); connectOrgEvents(); refreshTriggerViews(); }
   catch (e) { toast(e.message, "err"); }
 }
 async function deleteTrigger(id) {
@@ -4182,7 +4579,7 @@ async function deleteTrigger(id) {
     detail: "删除后该触发规则不再执行，已产生的任务与会话保留。",
     okText: "确认删除", icon: "zap",
   }))) return;
-  try { await api(`/api/org/triggers/${encodeURIComponent(id)}/delete`, { method: "POST", body: JSON.stringify({ unlocked: true }) }); toast("已删除", "ok"); loadTriggers(); }
+  try { await api(`/api/org/triggers/${encodeURIComponent(id)}/delete`, { method: "POST", body: JSON.stringify({ unlocked: true }) }); toast("已删除", "ok"); refreshTriggerViews(); }
   catch (e) { toast(e.message, "err"); }
 }
 
@@ -4352,6 +4749,8 @@ tickClock();
 async function refreshAll() {
   try {
     await loadOverview();
+    if ($("#view-resources").classList.contains("active")) await loadResources();
+    if ($("#view-skilllib").classList.contains("active")) await loadSkillLib();
     if ($("#view-org").classList.contains("active")) await loadOrgOverview();
     if ($("#view-employees").classList.contains("active")) await loadEmployees();
     if ($("#view-groups").classList.contains("active")) await loadGroups();
@@ -4372,6 +4771,7 @@ const bfState = {
   file: null, es: null, streaming: false,
   streamEl: null, streamText: "", toolRecords: [], runTools: null,
   model: null, usage: null, costCny: 0, costLabels: new Set(),
+  reconnectTimer: null,
 };
 
 function bfBox() { return $("#butlerFloat"); }
@@ -4381,6 +4781,22 @@ function bfSetStatus(kind, text) {
   if (!el) return;
   el.textContent = text || "";
   el.className = kind || "";
+  if (kind === "err") el.title = "点击重新连接";
+  else el.title = "";
+}
+/** SSE 断线处理：EventSource 自带自动重连，先显示「重连中」，超时仍未恢复才标记断开 */
+function bfMarkReconnecting() {
+  if (bfState.reconnectTimer) clearTimeout(bfState.reconnectTimer);
+  if (bfState.es?.readyState === EventSource.CLOSED) bfSetStatus("err", "连接断开");
+  else bfSetStatus("busy", "重连中…");
+  bfState.reconnectTimer = setTimeout(() => {
+    if (!bfState.es || bfState.es.readyState !== EventSource.OPEN) bfSetStatus("err", "连接断开");
+  }, 8000);
+}
+function bfMarkOnline(d) {
+  if (bfState.reconnectTimer) { clearTimeout(bfState.reconnectTimer); bfState.reconnectTimer = null; }
+  if (d?.model) bfSetModelDisplay(d.model);
+  bfSetStatus("ok", "在线");
 }
 function bfScroll() {
   const box = bfMessages();
@@ -4537,9 +4953,19 @@ async function bfConnect(file) {
     const es = new EventSource(`/api/chat/stream?file=${encodeURIComponent(file)}`);
     bfState.es = es;
     es.addEventListener("hello", (ev) => {
-      const d = JSON.parse(ev.data);
-      if (d.model) bfSetModelDisplay(d.model);
-      bfSetStatus("ok", "在线");
+      let d = {};
+      try { d = JSON.parse(ev.data); } catch {}
+      bfMarkOnline(d);
+    });
+    // 服务端主动关闭会话（快照更新/空闲回收/重启）会广播 closed：这不是故障，交给 EventSource 自动重连
+    es.addEventListener("closed", (ev) => {
+      let reason = "";
+      try { reason = JSON.parse(ev.data).reason || ""; } catch {}
+      bfMarkReconnecting();
+    });
+    es.addEventListener("process_exit", () => {
+      bfSetRunning(false);
+      bfMarkReconnecting();
     });
     es.addEventListener("state", (ev) => {
       const d = JSON.parse(ev.data);
@@ -4616,10 +5042,23 @@ async function bfConnect(file) {
       toast(msg, "err");
       bfSetRunning(false);
     });
-    es.onerror = () => bfSetStatus("err", "连接断开");
+    es.onerror = () => bfMarkReconnecting();
   } catch (e) {
     toast(`管家连接失败：${e.message}`, "err");
     bfSetStatus("err", "连接失败");
+  }
+  // 点击状态标签可手动重连
+  const statusEl = $("#butlerFloatStatus");
+  if (statusEl && !statusEl.dataset.clickBound) {
+    statusEl.dataset.clickBound = "1";
+    statusEl.style.cursor = "pointer";
+    statusEl.title = "点击重新连接";
+    statusEl.addEventListener("click", async () => {
+      if (!bfState.file) return;
+      toast("正在重连管家…", "ok");
+      await bfConnect(bfState.file);
+      if (bfState.es?.readyState === EventSource.OPEN) bfSetStatus("ok", "在线");
+    });
   }
 
   await bfFillModels();
@@ -4904,7 +5343,7 @@ async function applyImportItems() {
       body: JSON.stringify({ unlocked: true, items: picked, overwrite: $("#importOverwrite").checked }),
     });
     closeImportModal();
-    toast(`已导入 ${r.imported} 项${r.skipped ? `，跳过 ${r.skipped} 项` : ""}`, "ok");
+    toast(`已导入 ${r.imported} 项${r.skipped ? `，跳过 ${r.skipped} 项` : ""} · 到左侧「技能库 / 资源管理」查看，Pi 内 /reload 生效`, "ok");
     refreshAll();
   } catch (e) { toast(e.message, "err"); }
 }
@@ -5043,6 +5482,63 @@ document.addEventListener("keydown", (e) => {
 });
 // 搜索框绑定
 $("#sessionSearch")?.addEventListener("input", renderSessions);
+
+// 输入框拖入图片
+$("#chatInputShell")?.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+$("#chatInputShell")?.addEventListener("drop", (e) => {
+  const files = [...(e.dataTransfer?.files || [])].filter((f) => /^image\//.test(f.type));
+  if (!files.length) return;
+  e.preventDefault();
+  chatAddFiles(files);
+});
+// 用量弹层：点外部或 Esc 关闭
+document.addEventListener("click", (e) => {
+  if (!$("#sessionUsagePopover")) return;
+  if (e.target.closest("#sessionUsagePopover") || e.target.closest("#sessionUsageToggle")) return;
+  closeSessionUsage();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSessionUsage(); });
+
+// 「会话归属」栏宽度可拖拽，偏好写入 localStorage（双击手柄恢复默认）
+const SESS_EMP_W_KEY = "pi-admin-sess-emp-width";
+function applySessEmpWidth(px) {
+  const shell = $("#view-sessions .sess-shell");
+  if (!shell) return;
+  const w = Math.max(150, Math.min(420, Math.round(px)));
+  shell.style.setProperty("--sess-emps-w", `${w}px`);
+  try { localStorage.setItem(SESS_EMP_W_KEY, String(w)); } catch {}
+}
+(function initSessEmpResizer() {
+  const handle = $("#sessEmpResizer");
+  const shell = $("#view-sessions .sess-shell");
+  const pane = $("#view-sessions .sess-emps");
+  if (!handle || !shell || !pane) return;
+  try {
+    const saved = Number(localStorage.getItem(SESS_EMP_W_KEY));
+    if (saved >= 150 && saved <= 420) shell.style.setProperty("--sess-emps-w", `${saved}px`);
+  } catch {}
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = pane.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    document.body.classList.add("sess-resizing");
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    const move = (ev) => applySessEmpWidth(startW + ev.clientX - startX);
+    const up = () => {
+      handle.classList.remove("dragging");
+      document.body.classList.remove("sess-resizing");
+      window.removeEventListener("pointermove", move);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+  });
+  handle.addEventListener("dblclick", () => {
+    shell.style.setProperty("--sess-emps-w", "210px");
+    try { localStorage.removeItem(SESS_EMP_W_KEY); } catch {}
+  });
+})();
+
 $("#employeeSearch")?.addEventListener("input", renderEmployees);
 // Provider → 模型联动（P1 漏绑，选了 Provider 后模型下拉不会更新）
 $("#em-provider")?.addEventListener("change", onOrgProviderChange);

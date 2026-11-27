@@ -10,3 +10,6 @@
 .session-retention-log.json
 .china-holidays.json
 .usd-cny-rate.json
+
+# WorkBuddy 免密钥桥接凭据（应用公钥，按环境配置，不入库）
+.wb-bridge.json

@@ -93,6 +93,19 @@ bash start.sh 9000         # 指定端口
 - **其它国内模型**：按国内模型人民币单价口径展示，不走海外账单汇率。
 - **海外模型**：若服务商直接返回账单金额（`usage.cost.totalFromProvider=true`），优先用真实账单；否则用 Pi 模型单价计算。美元金额按实时汇率折算人民币，汇率缓存在 `admin/.usd-cny-rate.json`。
 - **展示位置**：概览显示「今日实际费用」和「累计费用」；会话列表卡片直接显示 token + 人民币金额 + 计价来源；聊天底部、群聊回应气泡、管家对话均显示本轮真实用量。
+- **WorkBuddy 免密钥模型**：走平台**积分制**，不按 token 计人民币，费用显示为「WorkBuddy 积分」、金额记 0；token 仍照常统计。模型名虽为 `deepseek-v4.1-flash` 等，但不会误套 DeepSeek 官方价。
+
+### WorkBuddy 免密钥大模型桥接（免买 API Key）
+
+把 WorkBuddy 的**应用级免密钥 LLM** 包装成本地 OpenAI 兼容接口，Pi 当普通 provider 用，**无需自己购买模型 API Key**（消耗 WorkBuddy 账号积分）。
+
+- **开通**：在 WorkBuddy 里创建一个云服务小应用（本项目为「Pi模型桥」），拿到 `endpoint` + `publishableKey`（`wbpk_` 开头）。凭据写在 `admin/.wb-bridge.json`（已在 `.gitignore` 中，不入库），未配置时桥接接口返回 503。
+- **本地桥接路由**（挂在管理端 8787，零新增进程）：
+  - `GET /wb/models` → OpenAI 格式模型列表（自动过滤图片/视频/未开放模型）
+  - `POST /wb/chat/completions` → 标准 Chat Completions；`stream:true` 时 SSE 原样透传，`stream:false` 时把上游 SSE 聚合为单个 JSON（兼容管理端的模型测试/总结调用）。每轮自动补 `system` 消息（WorkBuddy 硬性要求）。
+- **Pi 配置**：`~/.pi/agent/models.json` 增加 `workbuddy` provider（`baseUrl: http://127.0.0.1:8787/wb`、`api: openai-completions`），已配 8 个实测可用模型（DeepSeek V4.1 Flash / Auto / Hy4 / 快速 / 均衡 / GLM-5.3 Flash / 混元 / Space-Bunny）。Pi 子进程运行时目录会在拉起会话时自动同步这份配置。
+- **使用**：在模型下拉里选「WorkBuddy 免密钥」下的模型，或终端用 `pi --model workbuddy/deepseek-v4.1-flash`。
+- **注意**：必须先启动管理端（桥接依赖 8787）；只支持流式上游，非流式由本地代理聚合；额度/积分余额在 WorkBuddy 控制台查看，SDK 不暴露。
 
 ### 管家：问配置、代劳导入
 
@@ -206,7 +219,8 @@ bash start.sh 9000         # 指定端口
 
 ```
 org/
-├── departments.json        # 部门列表
+├── departments.json        # 部门列表（技能可写 @包名 引用技能包）
+├── skill-bundles.json      # 技能包：包名 → 技能名列表，分配时整包套用
 ├── roles.json              # 自定义岗位（可选，未创建时用内置模板）
 ├── employees/<id>.json     # 每个员工一份配置
 ├── groups.json             # 团队 Group（Leader + 成员）
@@ -231,8 +245,18 @@ org/
 | 团队 Group | 创建团队、指定 Leader、成员；群派活自动拆子任务给每个成员；**进群聊**：群是一个对话容器，@ 成员唤醒其以本人身份回应，普通发言只记录不触发任务 |
 | 任务看板 | 五列看板（待办/进行中/待验收/已完成/受阻）；建任务、派活、真实执行、验收、交接；**终态任务（已完成/受阻/取消）顶部可设「近 N 天」过滤**（默认 14 天，清空=全部），卡片显示创建时间；终态非死状态，详情可「重新打开」回到待办；有会话的任务卡片/详情提供「跳转会话」「弹窗打开会话」两个快捷入口，弹窗复用同一条实时连接 |
 | 协作中心 | 频道 + 消息流；派活/汇报/提问/交接/评审/升级，交接自动建任务 |
-| 自主工作 | 定时/一次性触发、最大次数、启停、立即运行；服务常驻调度器 |
+| 自主工作 | 定时/一次性触发、最大次数、启停、立即运行；服务常驻调度器（30 秒扫描，只执行 `interval` 类型，最小间隔 1 分钟）；**可为每条规则分别指定两个模型**：「任务运行模型」（调度扫描这次会话用）与「派生会话模型」（派发出的新任务/工单会话用，留空则跟随运行模型），都留空则跟随全局默认；保存后任务卡与工作台会显示模型标签 |
 | 知识库 | 组织共享知识，执行任务时自动注入员工上下文 |
+
+**实例：Redmine 自动调度（saul，每 10 分钟）**：`- Redmine 自动调度（@piwake）` 触发器让 saul 定时扫描 Redmine，工单历史备注里写了 `@piwake` 且指派给李帅的会自动派发成任务交给 saul 处理。三层结构：
+
+1. **触发器 `trg_mwyloe2w2bcd06`**：prompt 是改写后的调度员指令（`@saul`→`@piwake`、去掉 qoderwake 钉钉 `send_reply` 参数、通知改为管理端结论内报告），只让 saul 跑一条命令。
+2. **`redmine-scan.sh`**（包装脚本）：cd 到 `/Users/lishuai/work/ai/redmine/check_redmine`，设好 `REDMINE_CLAIM_KEYWORD=@piwake`、置空 `QODERWAKE_WAKER_ID` 停用 qoderwake 派发、`DISPATCH_CMD` 指向桥接脚本，然后跑 `app.py`。
+3. **`redmine-dispatch.py`**（派发桥接）：app.py 扫到工单后经 `DISPATCH_CMD` 把工单 prompt 从 stdin 传入，脚本调管理端 API 建任务 → 派给 saul → `execute=true` 立即执行；按 tag `redmine:#<工单号>` 去重，非终态任务存在则跳过。任务描述带路径授权前缀（授权 sessions/workspace/redmine 目录，覆盖默认「仅当前工作区」边界）。
+
+> 模型分工：给触发器配「任务运行模型 = A、派生会话模型 = B」后，扫描会话用 A；A 派发的 Redmine 工单任务会通过子进程环境 `PI_ADMIN_DISPATCH_MODEL` 继承 B，工单会话用 B。两者可不同，避免扫描用便宜快模型、处理工单用强模型时互相牵制。
+
+> 维护提示：改频率在「自主工作」编辑触发器；改认领标记改 `redmine-scan.sh` 的 `REDMINE_CLAIM_KEYWORD`；app.py 的会话中断巡检仍读 `qoderwake session list`（该 CLI 已不可用），会降级为「只看 Redmine 动态」，不影响派发，但静默判活暂缺——如要恢复需把 `session_rows()` 改接管理端任务状态。
 
 **员工工作台（点组织架构图的员工，或员工列表的 ✨ 按钮）**有 6 个标签：概览（身份/状态/统计）、记忆（长期记忆 CRUD）、技能（查看继承 + 挂载个人技能）、权限红线（文件/命令/网络 + Token/费用上限）、任务（该员工的任务）、对话（网页内实时聊天）。
 
@@ -244,6 +268,14 @@ org/
 - **团队层**：在「团队 Group → 编辑」里给团队设置「团队专属技能 / 工作流」，团队成员在**群聊 / SOP 场景**下叠加继承（普通独立任务不含团队技能）。
 - **个人层**：员工工作台「技能」标签里只挂**额外的个人专属技能**，重复会自动去重。技能页会清楚标注每项来自「部门 / 团队 / 个人」，并列出继承到的工作流。
 - **生效方式**：合并后的技能与工作流注入员工人格提示词（普通任务）、群聊 prompt、SOP 阶段 prompt 三处；改部门/团队配置后，下次执行任务或重新生成人格提示词即生效。
+
+**技能包（按组归类）**：技能多了逐个分配很麻烦，可把常用技能打成包——
+
+- 在「组织概览 → 技能包」新建/编辑/删除包，例如内置的 `@测试质量`、`@Redmine流程`、`@研发工程`、`@产品创新`、`@通用工具`，保存在 `org/skill-bundles.json`。
+- 部门/团队/个人的技能选择框里都能直接选 `@包名` 整包套用，也能混选单个技能名；解析时自动展开包内技能并去重，支持包嵌套（有循环引用防护）。
+- **改包内成员，所有引用该包的地方自动生效**，不必逐个部门改。
+- 当前配置：研发部引用全部 5 个包（展开 40 项技能），质量部引用 `@测试质量` + `@Redmine流程`（展开 11 项）。
+- 技能包是纯别名层：未定义的 `@包名` 会被忽略，不会污染技能列表；删除包只移除引用，不删除实际技能文件。改包/改部门配置后**重启管理端**生效。
 
 > 继承是"只加不减"：个人层无法移除部门/团队技能；如要排除，请调整上级部门或团队的配置。
 
@@ -288,7 +320,7 @@ org/
 - **内置岗位模板**：主管、产品经理、架构师、开发工程师、测试工程师、运维工程师、数据分析师、协调员。
 - **启停与归档**：启停只切换 `active / idle`；归档为 `archived`，**配置文件保留并先备份，不做删除**。
 - **部门管理**：编辑时 ID 锁定；部门下仍有在职员工时拒绝删除（归档员工不阻塞）。
-- **API**：`/api/org/full`、`/api/org/tasks`（+ `/:id` `/assign` `/run` `/abort` `/transition` `/artifact`）、`/api/org/groups`（+ `/:id/messages` 群聊消息、`/:id/sop` 群 SOP、`/:id/sop/history`）、`/api/org/sops`（网页端模板增删改复用此接口，保存前备份）、`/api/skills`（+ `/content` `/save` `/delete` 技能库 CRUD，路径白名单 + 备份）、`/api/org/skills-resolve`（技能/工作流继承解析：部门/团队/个人分层）、`/api/org/messages`、`/api/org/memory/:id`、`/api/org/triggers`（+ `/:id/fire`）、`/api/org/knowledge`、`/api/org/projects`、`/api/org/runs`、`/api/org/approvals`、`/api/org/events`（SSE，含 `group_message`、`employee_usage` 事件），`/api/org/employee-usage`（+ `/reset` 员工累计 token/金额查询与重置），以及 P1 的 employees/departments/roles/chat。
+- **API**：`/api/org/full`、`/api/org/tasks`（+ `/:id` `/assign` `/run` `/abort` `/transition` `/artifact`）、`/api/org/groups`（+ `/:id/messages` 群聊消息、`/:id/sop` 群 SOP、`/:id/sop/history`）、`/api/org/sops`（网页端模板增删改复用此接口，保存前备份）、`/api/skills`（+ `/content` `/save` `/delete` 技能库 CRUD，路径白名单 + 备份）、`/api/org/skills-resolve`（技能/工作流继承解析：部门/团队/个人分层，含 @包名 展开）、`/api/org/skill-bundles`（技能包 CRUD）、`/api/org/messages`、`/api/org/memory/:id`、`/api/org/triggers`（+ `/:id/fire`）、`/api/org/knowledge`、`/api/org/projects`、`/api/org/runs`、`/api/org/approvals`、`/api/org/events`（SSE，含 `group_message`、`employee_usage` 事件），`/api/org/employee-usage`（+ `/reset` 员工累计 token/金额查询与重置），以及 P1 的 employees/departments/roles/chat。
 
 ![任务看板](public/preview-board.png)
 
